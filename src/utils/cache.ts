@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, unlinkSync, openSync, writeSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 
 export function readTtlCache<T>(key: string, dir: string, ttlMs: number = 5000): T | null {
@@ -12,7 +12,14 @@ export function readTtlCache<T>(key: string, dir: string, ttlMs: number = 5000):
 
 export function writeTtlCache(key: string, data: unknown, dir: string): void {
   const filePath = join(dir, `claude-cc-${key}.json`);
-  try { writeFileSync(filePath, JSON.stringify(data), { mode: 0o600 }); } catch {}
+  try {
+    // Remove existing file first (prevents symlink following)
+    try { unlinkSync(filePath); } catch {}
+    // Write with exclusive flag
+    const fd = openSync(filePath, 'wx', 0o600);
+    writeSync(fd, JSON.stringify(data));
+    closeSync(fd);
+  } catch {}
 }
 
 export interface MtimeState {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { fileURLToPath } from 'node:url';
 import { readStdin as defaultReadStdin } from './stdin.js';
 import { parseGitStatus } from './parsers/git.js';
 import { parseTranscript } from './parsers/transcript.js';
@@ -42,6 +43,7 @@ export async function main(overrides: Partial<Dependencies> = {}): Promise<strin
 }
 
 // Run when invoked directly
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))) {
+const __filename = fileURLToPath(import.meta.url);
+if (process.argv[1] && (__filename === process.argv[1] || __filename === process.argv[1] + '.js')) {
   main().then(o => process.stdout.write(o)).catch(e => { if (!(e instanceof SyntaxError)) process.stderr.write(`Statusline error: ${e.message}\n`); });
 }

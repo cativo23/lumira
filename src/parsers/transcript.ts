@@ -4,6 +4,11 @@ import { resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import type { TranscriptData, ToolEntry, AgentEntry, TodoEntry, TodoStatus, ThinkingEffort } from '../types.js';
 import { EMPTY_TRANSCRIPT } from '../types.js';
+import { isMtimeFresh, getMtimeState, type MtimeState } from '../utils/cache.js';
+
+let cachedResult: TranscriptData | null = null;
+let cachedMtime: MtimeState | null = null;
+let cachedPath: string | null = null;
 
 const MAX_LINES = 50_000;
 
@@ -36,6 +41,11 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
 
   const resolved = resolve(transcriptPath);
   if (!resolved.startsWith(homedir()) && !resolved.startsWith(tmpdir())) return result;
+
+  const currentMtime = getMtimeState(transcriptPath);
+  if (currentMtime && cachedPath === transcriptPath && cachedMtime && isMtimeFresh(transcriptPath, cachedMtime) && cachedResult) {
+    return cachedResult;
+  }
 
   const toolMap = new Map<string, ToolEntry>();
   const agentMap = new Map<string, AgentEntry>();
@@ -121,5 +131,8 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   result.agents = Array.from(agentMap.values()).slice(-10);
   result.todos = todos;
   result.thinkingEffort = thinkingEffort;
+  cachedResult = result;
+  cachedMtime = currentMtime;
+  cachedPath = transcriptPath;
   return result;
 }

@@ -43,7 +43,7 @@ export function renderLine1(
     if (display.gitChanges) {
       const parts: string[] = [];
       if (git.staged > 0) parts.push(c.green(`+${git.staged}`));
-      if (git.modified > 0) parts.push(c.yellow(`~${git.modified}`));
+      if (git.modified > 0) parts.push(c.yellow(`!${git.modified}`));
       if (git.untracked > 0) parts.push(c.gray(`?${git.untracked}`));
       if (parts.length > 0) branchStr += ' ' + parts.join(' ');
     }

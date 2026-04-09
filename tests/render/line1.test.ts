@@ -32,7 +32,7 @@ describe('renderLine1', () => {
   it('shows git changes', () => {
     const out = stripAnsi(renderLine1(baseInput, git, EMPTY_TRANSCRIPT, c, DEFAULT_DISPLAY, 120));
     expect(out).toContain('+1');
-    expect(out).toContain('~2');
+    expect(out).toContain('!2');
     expect(out).toContain('?3');
   });
 

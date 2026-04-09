@@ -104,7 +104,7 @@ export function renderMinimal(
     }
 
     // Style
-    if (display.style && input.output_style?.name && input.output_style.name !== 'default') {
+    if (display.style && input.output_style?.name) {
       parts.push(c.dim(input.output_style.name));
     }
 

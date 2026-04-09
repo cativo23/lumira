@@ -7,7 +7,7 @@ import { renderMinimal } from './minimal.js';
 import type { RenderContext } from '../types.js';
 
 export function render(ctx: RenderContext): string {
-  const { input, git, transcript, tokenSpeed, gsd, cols, config } = ctx;
+  const { input, git, transcript, tokenSpeed, memory, gsd, cols, config } = ctx;
   const colorMode: ColorMode = config.colors.mode === 'auto' ? detectColorMode() : config.colors.mode;
   const c = createColors(colorMode);
 
@@ -17,7 +17,7 @@ export function render(ctx: RenderContext): string {
 
   const lines: string[] = [];
   lines.push(renderLine1(input, git, transcript, c, config.display, cols));
-  lines.push(renderLine2(input, tokenSpeed, transcript.thinkingEffort, c, config.display, cols));
+  lines.push(renderLine2(input, tokenSpeed, transcript.thinkingEffort, c, config.display, cols, memory));
   const l3 = renderLine3(transcript.tools, transcript.todos, c);
   if (l3) lines.push(l3);
   if (config.gsd) { const l4 = renderLine4(gsd, c); if (l4) lines.push(l4); }

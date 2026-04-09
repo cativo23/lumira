@@ -2,7 +2,7 @@ import { ICONS } from './icons.js';
 import { padLine, displayWidth } from './text.js';
 import { getContextColor, getQuotaColor, type Colors } from './colors.js';
 import { formatTokens, formatDuration, formatCost, formatBurnRate } from '../utils/format.js';
-import type { ClaudeCodeInput, DisplayToggles, ThinkingEffort } from '../types.js';
+import type { ClaudeCodeInput, DisplayToggles, ThinkingEffort, MemoryInfo } from '../types.js';
 
 const SEP = ` \x1b[90m│\x1b[0m `;
 
@@ -36,7 +36,8 @@ export function renderLine2(
   thinkingEffort: ThinkingEffort,
   c: Colors,
   display: DisplayToggles,
-  cols: number
+  cols: number,
+  memory: MemoryInfo | null = null
 ): string {
   const leftParts: string[] = [];
   const rightParts: string[] = [];
@@ -71,6 +72,11 @@ export function renderLine2(
   // Duration
   if (display.duration && input.cost) {
     leftParts.push(`${ICONS.clock} ${formatDuration(input.cost.total_duration_ms)}`);
+  }
+
+  // Memory
+  if (display.memory && memory) {
+    leftParts.push(c.dim(`${memory.percentage}% mem`));
   }
 
   // Token speed
