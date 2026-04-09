@@ -14,7 +14,7 @@ function buildContextBar(pct: number, c: Colors): string {
   let icon = '';
   if (pct >= 80) icon = c.blinkRed(ICONS.skull);
   else if (pct >= 65) icon = c.orange(ICONS.fire);
-  const pctStr = colorFn(`${pct.toFixed(0)}%`);
+  const pctStr = colorFn(`${pct < 10 ? pct.toFixed(1) : pct.toFixed(0)}%`);
   return `[${bar}] ${pctStr}${icon ? ' ' + icon : ''}`;
 }
 

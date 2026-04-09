@@ -67,6 +67,7 @@ export function getContextColor(pct: number): ColorName {
 }
 
 export function getQuotaColor(pct: number): ColorName {
+  if (pct < 50) return 'green';
   if (pct < 70) return 'yellow';
   if (pct < 85) return 'orange';
   return 'blinkRed';

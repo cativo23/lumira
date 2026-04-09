@@ -6,7 +6,8 @@ export function displayWidth(str: string): number {
   for (const ch of clean) {
     const cp = ch.codePointAt(0)!;
     if ((cp >= 0xFE00 && cp <= 0xFE0F) || cp === 0x200D || (cp >= 0x0300 && cp <= 0x036F)) continue;
-    if (cp >= 0x1F000 || (cp >= 0x2600 && cp <= 0x27BF) || (cp >= 0x2B00 && cp <= 0x2BFF) ||
+    if (cp >= 0x1F000 || (cp >= 0x2300 && cp <= 0x257F) || (cp >= 0x25A0 && cp <= 0x25FF) ||
+        (cp >= 0x2600 && cp <= 0x27BF) || (cp >= 0x2B00 && cp <= 0x2BFF) ||
         (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3000 && cp <= 0x303F) || (cp >= 0xFF00 && cp <= 0xFFEF)) {
       w += 2;
     } else { w += 1; }
@@ -15,8 +16,17 @@ export function displayWidth(str: string): number {
 }
 
 export function truncField(str: string, max: number): string {
-  if (str.length <= max) return str;
-  return str.slice(0, Math.max(0, max - 1)) + '\u2026';
+  if (displayWidth(str) <= max) return str;
+  // Build truncated string character by character using display width
+  let result = '';
+  let w = 0;
+  for (const ch of str) {
+    const cw = displayWidth(ch);
+    if (w + cw + 1 > max) break; // +1 for ellipsis
+    result += ch;
+    w += cw;
+  }
+  return result + '\u2026';
 }
 
 export function truncatePath(str: string, maxLen: number = 20): string {

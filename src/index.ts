@@ -28,13 +28,14 @@ export async function main(overrides: Partial<Dependencies> = {}): Promise<strin
   const input = await deps.readStdin();
   const cwd = input.cwd || input.workspace?.current_dir || process.cwd();
 
-  const [git, transcript, tokenSpeed, memory, gsd] = await Promise.all([
+  const [git, transcript] = await Promise.all([
     deps.parseGit(cwd),
     input.transcript_path ? deps.parseTranscript(input.transcript_path) : Promise.resolve(EMPTY_TRANSCRIPT),
-    Promise.resolve(deps.getTokenSpeed(input.context_window)),
-    Promise.resolve(deps.getMemoryInfo()),
-    config.gsd ? Promise.resolve(deps.getGsdInfo(input.session_id)) : Promise.resolve(null),
   ]);
+
+  const tokenSpeed = deps.getTokenSpeed(input.context_window);
+  const memory = deps.getMemoryInfo();
+  const gsd = config.gsd ? deps.getGsdInfo(input.session_id) : null;
 
   const rawCols = deps.getTermCols();
   const isTTY = !!(process.stdout.columns || process.stderr.columns);

@@ -37,6 +37,7 @@ describe('getContextColor', () => {
 });
 
 describe('getQuotaColor', () => {
+  it('returns green for <50%', () => { expect(getQuotaColor(30)).toBe('green'); });
   it('returns yellow for 50-69%', () => { expect(getQuotaColor(55)).toBe('yellow'); });
   it('returns orange for 70-84%', () => { expect(getQuotaColor(75)).toBe('orange'); });
   it('returns blinkRed for >=85%', () => { expect(getQuotaColor(90)).toBe('blinkRed'); });

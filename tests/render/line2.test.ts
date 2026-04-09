@@ -85,4 +85,12 @@ describe('renderLine2', () => {
     const out = stripAnsi(renderLine2(baseInput, null, 'low', c, DEFAULT_DISPLAY, 120));
     expect(out).toContain('^low');
   });
+
+  it('shows memory percentage when provided', () => {
+    const memory = { usedBytes: 8e9, totalBytes: 16e9, percentage: 50 };
+    const line = renderLine2(baseInput, null, '', c, DEFAULT_DISPLAY, 120, memory);
+    const plain = stripAnsi(line);
+    expect(plain).toContain('50%');
+    expect(plain).toContain('mem');
+  });
 });

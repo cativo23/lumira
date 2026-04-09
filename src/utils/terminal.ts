@@ -10,7 +10,8 @@ function getTermColsFromProcTree(): number {
         try {
           const link = readlinkSync(`/proc/${pid}/fd/${fd}`);
           if (link.startsWith('/dev/pts/') || link === '/dev/tty') {
-            // Shell needed for stdin redirect; path is from procfs, not user input
+            // SECURITY NOTE: `link` comes from reading /proc/{pid}/fd symlinks (kernel-controlled),
+            // never from user input. Shell is required for the stdin redirect syntax `< /dev/pts/N`.
             const out = execSync(`stty size < ${link}`, { shell: '/bin/sh', timeout: 500, encoding: 'utf8' }).trim();
             const cols = parseInt(out.split(/\s+/)[1], 10);
             if (cols > 0) return cols;
