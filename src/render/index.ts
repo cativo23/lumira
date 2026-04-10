@@ -18,7 +18,7 @@ export function render(ctx: RenderContext): string {
   const lines: string[] = [];
   lines.push(renderLine1(input, git, transcript, c, config.display, cols));
   lines.push(renderLine2(input, tokenSpeed, transcript.thinkingEffort, c, config.display, cols, memory));
-  const l3 = renderLine3(transcript.tools, transcript.todos, c);
+  const l3 = renderLine3(transcript.tools, transcript.todos, c, config.display);
   if (l3) lines.push(l3);
   if (config.gsd) { const l4 = renderLine4(gsd, c); if (l4) lines.push(l4); }
   return lines.filter(Boolean).join('\n');

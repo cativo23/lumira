@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderLine3 } from '../../src/render/line3.js';
 import { createColors, stripAnsi } from '../../src/render/colors.js';
+import { DEFAULT_DISPLAY } from '../../src/types.js';
 import type { ToolEntry, TodoEntry } from '../../src/types.js';
 
 const c = createColors('named');
@@ -60,5 +61,30 @@ describe('renderLine3', () => {
     const out = stripAnsi(renderLine3(tools, todos, c));
     expect(out).toContain('Read');
     expect(out).toContain('1/1');
+  });
+
+  it('hides tools when display.tools is false', () => {
+    const tools = [completedTool('Read')];
+    const todos = [todo('1', 'Task', 'completed')];
+    const display = { ...DEFAULT_DISPLAY, tools: false };
+    const out = stripAnsi(renderLine3(tools, todos, c, display));
+    expect(out).not.toContain('Read');
+    expect(out).toContain('1/1');
+  });
+
+  it('hides todos when display.todos is false', () => {
+    const tools = [completedTool('Read')];
+    const todos = [todo('1', 'Task', 'completed')];
+    const display = { ...DEFAULT_DISPLAY, todos: false };
+    const out = stripAnsi(renderLine3(tools, todos, c, display));
+    expect(out).toContain('Read');
+    expect(out).not.toContain('1/1');
+  });
+
+  it('returns empty when both toggles are false', () => {
+    const tools = [completedTool('Read')];
+    const todos = [todo('1', 'Task', 'completed')];
+    const display = { ...DEFAULT_DISPLAY, tools: false, todos: false };
+    expect(renderLine3(tools, todos, c, display)).toBe('');
   });
 });

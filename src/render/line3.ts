@@ -1,7 +1,7 @@
 import { ICONS } from './icons.js';
 import { truncField } from './text.js';
 import type { Colors } from './colors.js';
-import type { ToolEntry, TodoEntry } from '../types.js';
+import type { ToolEntry, TodoEntry, DisplayToggles } from '../types.js';
 
 const EXCLUDED_TOOLS = new Set(['TodoWrite', 'TaskCreate', 'TaskUpdate']);
 const SEP_GRAY = ` \x1b[90m│\x1b[0m `;
@@ -61,10 +61,11 @@ function buildTodosPart(todos: TodoEntry[], c: Colors): string {
 export function renderLine3(
   tools: ToolEntry[],
   todos: TodoEntry[],
-  c: Colors
+  c: Colors,
+  display?: DisplayToggles
 ): string {
-  const toolsPart = buildToolsPart(tools, c);
-  const todosPart = buildTodosPart(todos, c);
+  const toolsPart = display?.tools === false ? '' : buildToolsPart(tools, c);
+  const todosPart = display?.todos === false ? '' : buildTodosPart(todos, c);
 
   if (!toolsPart && !todosPart) return '';
   if (!toolsPart) return todosPart;
