@@ -209,4 +209,5 @@ export interface Dependencies {
   getMemoryInfo: () => MemoryInfo | null;
   getGsdInfo: (session: string) => GsdInfo | null;
   getTermCols: () => number;
+  loadConfig?: () => HudConfig;
 }

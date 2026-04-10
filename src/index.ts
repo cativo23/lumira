@@ -25,7 +25,8 @@ const defaultDeps: Dependencies = {
 
 export async function main(overrides: Partial<Dependencies> = {}): Promise<string> {
   const deps = { ...defaultDeps, ...overrides };
-  const config = mergeCliFlags(loadConfig(), process.argv);
+  const configLoader = deps.loadConfig ?? loadConfig;
+  const config = mergeCliFlags(configLoader(), process.argv);
   const input = await deps.readStdin();
   const cwd = input.cwd || input.workspace?.current_dir || process.cwd();
 

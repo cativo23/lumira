@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { main } from '../src/index.js';
-import { EMPTY_TRANSCRIPT } from '../src/types.js';
+import { EMPTY_TRANSCRIPT, DEFAULT_CONFIG, DEFAULT_DISPLAY } from '../src/types.js';
 import { stripAnsi } from '../src/render/colors.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -22,5 +22,21 @@ describe('main', () => {
     expect(plain).toContain('main');
     expect(plain).toContain('$1.31');
     expect(output.split('\n').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('uses injected loadConfig for minimal layout', async () => {
+    const sample = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'sample-input.json'), 'utf8'));
+    const output = await main({
+      readStdin: async () => sample,
+      parseGit: async () => ({ branch: 'main', staged: 0, modified: 0, untracked: 0 }),
+      parseTranscript: async () => EMPTY_TRANSCRIPT,
+      getTokenSpeed: () => null,
+      getMemoryInfo: () => null,
+      getGsdInfo: () => null,
+      getTermCols: () => 120,
+      loadConfig: () => ({ ...DEFAULT_CONFIG, layout: 'minimal', display: { ...DEFAULT_DISPLAY } }),
+    });
+    // Minimal layout produces at most 2 lines (main + optional tools/todos)
+    expect(output.split('\n').length).toBeLessThanOrEqual(2);
   });
 });
