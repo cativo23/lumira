@@ -18,7 +18,7 @@ export function formatCountdown(resetsAt: number): string {
 }
 
 export function renderLine2(ctx: RenderContext, c: Colors): string {
-  const { input, tokenSpeed, transcript: { thinkingEffort }, config: { display }, cols, memory, icons } = ctx;
+  const { input, tokenSpeed, transcript: { thinkingEffort }, config: { display }, cols, memory, mcp, icons } = ctx;
   const leftParts: string[] = [];
   const rightParts: string[] = [];
 
@@ -26,6 +26,13 @@ export function renderLine2(ctx: RenderContext, c: Colors): string {
   if (display.contextBar) {
     const pct = input.context_window.used_percentage;
     leftParts.push(buildContextBar(pct, c, { iconSet: icons }));
+  }
+
+  // Context tokens (estimated used/capacity from percentage)
+  if (display.contextTokens && input.context_window.total_input_tokens != null && input.context_window.used_percentage > 0) {
+    const used = input.context_window.total_input_tokens;
+    const capacity = Math.round(used / (input.context_window.used_percentage / 100));
+    leftParts.push(c.dim(`${formatTokens(used)}/${formatTokens(capacity)}`));
   }
 
   // Tokens
@@ -36,6 +43,16 @@ export function renderLine2(ctx: RenderContext, c: Colors): string {
     if (inTokens != null) parts.push(`${formatTokens(inTokens)}↑`);
     if (outTokens != null) parts.push(`${formatTokens(outTokens)}↓`);
     if (parts.length > 0) leftParts.push(`${icons.comment} ${parts.join(' ')}`);
+  }
+
+  // Cache metrics (hit rate)
+  if (display.cacheMetrics) {
+    const cacheRead = input.context_window.cache_read_input_tokens;
+    const totalIn = input.context_window.total_input_tokens;
+    if (cacheRead != null && totalIn != null && totalIn > 0) {
+      const hitRate = Math.round((cacheRead / totalIn) * 100);
+      leftParts.push(c.dim(`cache ${hitRate}%`));
+    }
   }
 
   // Cost + burn rate
@@ -57,6 +74,17 @@ export function renderLine2(ctx: RenderContext, c: Colors): string {
   // Memory
   if (display.memory && memory) {
     leftParts.push(c.dim(`${memory.percentage}% mem`));
+  }
+
+  // MCP servers
+  if (display.mcp && mcp) {
+    const total = mcp.servers.length;
+    const errors = mcp.servers.filter(s => s.status === 'error').length;
+    if (errors > 0) {
+      leftParts.push(c.red(`MCP ${total - errors}/${total}`));
+    } else {
+      leftParts.push(c.dim(`MCP ${total}`));
+    }
   }
 
   // Token speed

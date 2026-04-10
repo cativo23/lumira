@@ -37,9 +37,9 @@ export function buildContextBar(pct: number, c: Colors, opts?: ContextBarOpts): 
   const pctStr = colorFn(`${pct < 10 ? pct.toFixed(1) : pct.toFixed(0)}%`);
 
   if (pctInsideBar) {
-    return `[${bar} ${pctStr}${icon ? ' ' + icon : ''}]`;
+    return `${bar} ${pctStr}${icon ? ' ' + icon : ''}`;
   }
-  return `[${bar}] ${pctStr}${icon ? ' ' + icon : ''}`;
+  return `${bar} ${pctStr}${icon ? ' ' + icon : ''}`;
 }
 
 export function formatGitChanges(git: GitStatus, c: Colors): string[] {

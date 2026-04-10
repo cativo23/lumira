@@ -23,8 +23,8 @@ describe('buildContextBar', () => {
   it('uses 20 segments by default', () => {
     const bar = stripAnsi(buildContextBar(50, c));
     expect(bar).toContain('50%');
-    // Default format: [bar] pct
-    expect(bar).toMatch(/\] 50%/);
+    // Default format: bar pct
+    expect(bar).toMatch(/░ 50%/);
   });
 
   it('supports custom segment count', () => {
@@ -36,8 +36,8 @@ describe('buildContextBar', () => {
 
   it('puts pct inside bar when pctInsideBar is true', () => {
     const bar = stripAnsi(buildContextBar(50, c, { pctInsideBar: true }));
-    // Format: [bar pct]
-    expect(bar).toMatch(/50%\]$/);
+    // Format: bar pct (no brackets)
+    expect(bar).toMatch(/50%$/);
   });
 
   it('shows decimal for pct < 10', () => {
