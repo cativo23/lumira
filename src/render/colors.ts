@@ -56,8 +56,11 @@ export function stripAnsi(str: string): string {
 }
 
 export function detectColorMode(): ColorMode {
-  // Default to named ANSI — respects terminal theme colors.
-  // Only upgrade if user explicitly sets colors.mode in config.
+  const colorterm = (process.env['COLORTERM'] ?? '').toLowerCase();
+  if (colorterm === 'truecolor' || colorterm === '24bit') return 'truecolor';
+  const term = process.env['TERM'] ?? '';
+  const termProgram = process.env['TERM_PROGRAM'] ?? '';
+  if (term.endsWith('-256color') || termProgram === 'iTerm.app' || termProgram === 'Hyper') return '256';
   return 'named';
 }
 

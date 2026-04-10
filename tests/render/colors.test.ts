@@ -11,7 +11,40 @@ describe('stripAnsi', () => {
 });
 
 describe('detectColorMode', () => {
-  it('always returns named by default (respects terminal theme)', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('returns truecolor when COLORTERM=truecolor', () => {
+    vi.stubEnv('COLORTERM', 'truecolor');
+    vi.stubEnv('TERM', '');
+    vi.stubEnv('TERM_PROGRAM', '');
+    expect(detectColorMode()).toBe('truecolor');
+  });
+
+  it('returns truecolor when COLORTERM=24bit', () => {
+    vi.stubEnv('COLORTERM', '24bit');
+    vi.stubEnv('TERM', '');
+    vi.stubEnv('TERM_PROGRAM', '');
+    expect(detectColorMode()).toBe('truecolor');
+  });
+
+  it('returns 256 when TERM ends with -256color', () => {
+    vi.stubEnv('COLORTERM', '');
+    vi.stubEnv('TERM', 'xterm-256color');
+    vi.stubEnv('TERM_PROGRAM', '');
+    expect(detectColorMode()).toBe('256');
+  });
+
+  it('returns 256 for iTerm.app', () => {
+    vi.stubEnv('COLORTERM', '');
+    vi.stubEnv('TERM', 'xterm');
+    vi.stubEnv('TERM_PROGRAM', 'iTerm.app');
+    expect(detectColorMode()).toBe('256');
+  });
+
+  it('returns named as fallback', () => {
+    vi.stubEnv('COLORTERM', '');
+    vi.stubEnv('TERM', 'xterm');
+    vi.stubEnv('TERM_PROGRAM', '');
     expect(detectColorMode()).toBe('named');
   });
 });
