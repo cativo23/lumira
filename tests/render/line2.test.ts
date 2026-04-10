@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { renderLine2, formatCountdown } from '../../src/render/line2.js';
 import { createColors, stripAnsi } from '../../src/render/colors.js';
 import { DEFAULT_DISPLAY } from '../../src/types.js';
@@ -96,6 +96,8 @@ describe('renderLine2', () => {
 });
 
 describe('formatCountdown', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('returns empty string for past timestamps', () => {
     expect(formatCountdown(Date.now() - 10_000)).toBe('');
   });
@@ -104,29 +106,24 @@ describe('formatCountdown', () => {
     const now = 1_700_000_000_000; // realistic ms timestamp
     vi.useFakeTimers({ now });
     expect(formatCountdown(now + 45_000)).toBe('45s');
-    vi.useRealTimers();
   });
 
   it('formats minutes and seconds', () => {
     const now = 1_700_000_000_000;
     vi.useFakeTimers({ now });
     expect(formatCountdown(now + 125_000)).toBe('2m05s');
-    vi.useRealTimers();
   });
 
   it('formats hours and minutes', () => {
     const now = 1_700_000_000_000;
     vi.useFakeTimers({ now });
     expect(formatCountdown(now + 3_725_000)).toBe('1h02m');
-    vi.useRealTimers();
   });
 
   it('treats values < 1e12 as seconds and converts to ms', () => {
     const nowMs = 1_700_000_000_000;
     const nowSec = nowMs / 1000; // 1_700_000_000
     vi.useFakeTimers({ now: nowMs });
-    // resets_at in seconds, 60s from now
     expect(formatCountdown(nowSec + 60)).toBe('1m00s');
-    vi.useRealTimers();
   });
 });

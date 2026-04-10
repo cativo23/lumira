@@ -113,7 +113,7 @@ export function uninstall(opts: InstallerOptions = {}): string {
       return lines.join('\n') + '\n';
     } catch {
       lines.push(warn('Backup file is corrupt — skipping restore'));
-      unlinkSync(backupPath);
+      try { unlinkSync(backupPath); } catch {}
     }
   }
 
