@@ -1,8 +1,19 @@
-import { readFileSync, statSync, unlinkSync, openSync, writeSync, closeSync } from 'node:fs';
+import { readFileSync, statSync, unlinkSync, openSync, writeSync, closeSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
+function cacheDirPath(dir: string): string {
+  return join(dir, `lumira-${process.getuid?.() ?? 'default'}`);
+}
+
+function ensureCacheDir(dir: string): string {
+  const cacheDir = cacheDirPath(dir);
+  mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+  return cacheDir;
+}
+
 export function readTtlCache<T>(key: string, dir: string, ttlMs: number = 5000): T | null {
-  const filePath = join(dir, `ccpulse-${key}.json`);
+  const cacheDir = cacheDirPath(dir);
+  const filePath = join(cacheDir, `${key}.json`);
   try {
     const stat = statSync(filePath);
     if (Date.now() - stat.mtimeMs > ttlMs) return null;
@@ -11,7 +22,8 @@ export function readTtlCache<T>(key: string, dir: string, ttlMs: number = 5000):
 }
 
 export function writeTtlCache(key: string, data: unknown, dir: string): void {
-  const filePath = join(dir, `ccpulse-${key}.json`);
+  const cacheDir = ensureCacheDir(dir);
+  const filePath = join(cacheDir, `${key}.json`);
   try {
     // Remove existing file first (prevents symlink following)
     try { unlinkSync(filePath); } catch {}

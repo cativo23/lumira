@@ -1,11 +1,11 @@
 {
-  "name": "ccpulse",
+  "name": "lumira",
   "version": "0.1.0",
-  "description": "ccpulse — real-time statusline plugin for Claude Code",
+  "description": "lumira — real-time statusline for Claude Code",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "ccpulse": "dist/index.js"
+    "lumira": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -28,7 +28,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cativo23/ccpulse.git"
+    "url": "git+https://github.com/cativo23/lumira.git"
   },
   "keywords": [
     "claude-code",

@@ -4,22 +4,23 @@ import { renderLine2 } from './line2.js';
 import { renderLine3 } from './line3.js';
 import { renderLine4 } from './line4.js';
 import { renderMinimal } from './minimal.js';
+import { resolveTheme } from '../themes.js';
 import type { RenderContext } from '../types.js';
 
 export function render(ctx: RenderContext): string {
-  const { input, git, transcript, tokenSpeed, memory, gsd, cols, config } = ctx;
-  const colorMode: ColorMode = config.colors.mode === 'auto' ? detectColorMode() : config.colors.mode;
-  const c = createColors(colorMode);
+  const colorMode: ColorMode = ctx.config.colors.mode === 'auto' ? detectColorMode() : ctx.config.colors.mode;
+  const theme = resolveTheme(ctx.config.theme, colorMode);
+  const c = createColors(colorMode, theme);
 
-  if (config.layout === 'minimal' || (config.layout === 'auto' && cols < 70)) {
-    return renderMinimal(input, git, transcript, tokenSpeed, gsd, c, config.display, cols);
+  if (ctx.config.layout === 'singleline' || (ctx.config.layout === 'auto' && ctx.cols < 70)) {
+    return renderMinimal(ctx, c);
   }
 
   const lines: string[] = [];
-  lines.push(renderLine1(input, git, transcript, c, config.display, cols));
-  lines.push(renderLine2(input, tokenSpeed, transcript.thinkingEffort, c, config.display, cols, memory));
-  const l3 = renderLine3(transcript.tools, transcript.todos, c);
+  lines.push(renderLine1(ctx, c));
+  lines.push(renderLine2(ctx, c));
+  const l3 = renderLine3(ctx, c);
   if (l3) lines.push(l3);
-  if (config.gsd) { const l4 = renderLine4(gsd, c); if (l4) lines.push(l4); }
+  if (ctx.config.gsd) { const l4 = renderLine4(ctx, c); if (l4) lines.push(l4); }
   return lines.filter(Boolean).join('\n');
 }

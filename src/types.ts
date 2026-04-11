@@ -11,6 +11,8 @@ export interface ClaudeCodeInput {
     remaining_percentage: number;
     total_input_tokens?: number;
     total_output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
     current_usage?: { output_tokens: number };
   };
   cost: {
@@ -111,6 +113,15 @@ export interface MemoryInfo {
   percentage: number;
 }
 
+export interface McpServerInfo {
+  name: string;
+  status: 'ok' | 'error' | 'unknown';
+}
+
+export interface McpInfo {
+  servers: McpServerInfo[];
+}
+
 // ── Render context ──────────────────────────────────────────────────
 
 export interface RenderContext {
@@ -120,17 +131,33 @@ export interface RenderContext {
   tokenSpeed: number | null;
   memory: MemoryInfo | null;
   gsd: GsdInfo | null;
+  mcp: McpInfo | null;
   cols: number;
   config: HudConfig;
+  icons: import('./render/icons.js').IconSet;
 }
 
 // ── Config ──────────────────────────────────────────────────────────
 
 export interface HudConfig {
-  layout: 'custom' | 'minimal' | 'auto';
+  /**
+   * Internal render mode — controls which renderer is used.
+   * Derived from `preset` via applyPreset(). Users should set `preset` instead.
+   *   multiline  → full multi-line renderer (line1+line2+line3+line4)
+   *   singleline → compact single-line renderer
+   *   auto       → pick based on terminal width (<70 cols → singleline)
+   */
+  layout: 'multiline' | 'singleline' | 'auto';
   gsd: boolean;
   display: DisplayToggles;
   colors: ColorConfig;
+  /**
+   * User-facing preset — drives layout + display toggles (Phase 3).
+   * CLI: --full | --balanced | --minimal | --preset=<value>
+   */
+  preset?: 'full' | 'balanced' | 'minimal';
+  theme?: string;
+  icons?: 'nerd' | 'emoji' | 'none';
 }
 
 export interface DisplayToggles {
@@ -139,6 +166,7 @@ export interface DisplayToggles {
   gitChanges: boolean;
   directory: boolean;
   contextBar: boolean;
+  contextTokens: boolean;
   tokens: boolean;
   cost: boolean;
   burnRate: boolean;
@@ -156,6 +184,8 @@ export interface DisplayToggles {
   version: boolean;
   linesChanged: boolean;
   memory: boolean;
+  cacheMetrics: boolean;
+  mcp: boolean;
 }
 
 export interface ColorConfig {
@@ -168,6 +198,7 @@ export const DEFAULT_DISPLAY: DisplayToggles = {
   gitChanges: true,
   directory: true,
   contextBar: true,
+  contextTokens: true,
   tokens: true,
   cost: true,
   burnRate: true,
@@ -185,6 +216,8 @@ export const DEFAULT_DISPLAY: DisplayToggles = {
   version: true,
   linesChanged: true,
   memory: true,
+  cacheMetrics: true,
+  mcp: true,
 };
 
 export const DEFAULT_CONFIG: HudConfig = {
@@ -203,5 +236,7 @@ export interface Dependencies {
   getTokenSpeed: (contextWindow: ClaudeCodeInput['context_window']) => number | null;
   getMemoryInfo: () => MemoryInfo | null;
   getGsdInfo: (session: string) => GsdInfo | null;
+  getMcpInfo: (cwd: string) => McpInfo | null;
   getTermCols: () => number;
+  loadConfig?: () => HudConfig;
 }

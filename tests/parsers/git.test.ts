@@ -9,8 +9,18 @@ describe('parseGitStatus', () => {
       .mockResolvedValueOnce('M  file.ts\n?? new.ts\nA  added.ts');
     const result = await parseGitStatus('/test', exec);
     expect(result.branch).toBe('main');
-    expect(result.staged).toBe(1);
-    expect(result.modified).toBe(1);
+    expect(result.staged).toBe(2);   // M + A in col 0
+    expect(result.modified).toBe(0); // no worktree changes (col 1)
+    expect(result.untracked).toBe(1);
+  });
+
+  it('counts MM as both staged and modified', async () => {
+    const exec = vi.fn()
+      .mockResolvedValueOnce('dev')
+      .mockResolvedValueOnce('MM file.ts\nA  added.ts\n M only-worktree.ts\nD  deleted.ts\n?? new.ts');
+    const result = await parseGitStatus('/test2', exec);
+    expect(result.staged).toBe(3);    // MM, A, D in col 0
+    expect(result.modified).toBe(2);  // MM (col1=M), ' M' (col1=M)
     expect(result.untracked).toBe(1);
   });
   it('returns empty on git failure', async () => {

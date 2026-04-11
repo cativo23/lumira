@@ -1,25 +1,12 @@
-import { ICONS } from './icons.js';
 import { padLine, displayWidth } from './text.js';
-import { getContextColor, getQuotaColor, type Colors } from './colors.js';
+import { getQuotaColor, type Colors } from './colors.js';
+import { buildContextBar, SEP } from './shared.js';
 import { formatTokens, formatDuration, formatCost, formatBurnRate } from '../utils/format.js';
-import type { ClaudeCodeInput, DisplayToggles, ThinkingEffort, MemoryInfo } from '../types.js';
+import type { RenderContext } from '../types.js';
 
-const SEP = ` \x1b[90m│\x1b[0m `;
-
-function buildContextBar(pct: number, c: Colors): string {
-  const SEGMENTS = 20;
-  const filled = Math.round((pct / 100) * SEGMENTS);
-  const colorFn = c[getContextColor(pct)];
-  const bar = colorFn(ICONS.barFull.repeat(filled)) + c.dim(ICONS.barEmpty.repeat(SEGMENTS - filled));
-  let icon = '';
-  if (pct >= 80) icon = c.blinkRed(ICONS.skull);
-  else if (pct >= 65) icon = c.orange(ICONS.fire);
-  const pctStr = colorFn(`${pct < 10 ? pct.toFixed(1) : pct.toFixed(0)}%`);
-  return `[${bar}] ${pctStr}${icon ? ' ' + icon : ''}`;
-}
-
-function formatCountdown(resetsAt: number): string {
-  const diffMs = resetsAt - Date.now();
+export function formatCountdown(resetsAt: number): string {
+  const resetsAtMs = resetsAt < 1e12 ? resetsAt * 1000 : resetsAt;
+  const diffMs = resetsAtMs - Date.now();
   if (diffMs <= 0) return '';
   const totalSec = Math.floor(diffMs / 1000);
   const h = Math.floor(totalSec / 3600);
@@ -30,22 +17,22 @@ function formatCountdown(resetsAt: number): string {
   return `${s}s`;
 }
 
-export function renderLine2(
-  input: ClaudeCodeInput,
-  tokenSpeed: number | null,
-  thinkingEffort: ThinkingEffort,
-  c: Colors,
-  display: DisplayToggles,
-  cols: number,
-  memory: MemoryInfo | null = null
-): string {
+export function renderLine2(ctx: RenderContext, c: Colors): string {
+  const { input, tokenSpeed, transcript: { thinkingEffort }, config: { display }, cols, memory, mcp, icons } = ctx;
   const leftParts: string[] = [];
   const rightParts: string[] = [];
 
   // Context bar
   if (display.contextBar) {
     const pct = input.context_window.used_percentage;
-    leftParts.push(buildContextBar(pct, c));
+    leftParts.push(buildContextBar(pct, c, { iconSet: icons }));
+  }
+
+  // Context tokens (estimated used/capacity from percentage)
+  if (display.contextTokens && input.context_window.total_input_tokens != null && input.context_window.used_percentage > 0) {
+    const used = input.context_window.total_input_tokens;
+    const capacity = Math.round(used / (input.context_window.used_percentage / 100));
+    leftParts.push(c.dim(`${formatTokens(used)}/${formatTokens(capacity)}`));
   }
 
   // Tokens
@@ -55,7 +42,17 @@ export function renderLine2(
     const parts: string[] = [];
     if (inTokens != null) parts.push(`${formatTokens(inTokens)}↑`);
     if (outTokens != null) parts.push(`${formatTokens(outTokens)}↓`);
-    if (parts.length > 0) leftParts.push(`${ICONS.comment} ${parts.join(' ')}`);
+    if (parts.length > 0) leftParts.push(`${icons.comment} ${parts.join(' ')}`);
+  }
+
+  // Cache metrics (hit rate)
+  if (display.cacheMetrics) {
+    const cacheRead = input.context_window.cache_read_input_tokens;
+    const totalIn = input.context_window.total_input_tokens;
+    if (cacheRead != null && totalIn != null && totalIn > 0) {
+      const hitRate = Math.round((cacheRead / totalIn) * 100);
+      leftParts.push(c.dim(`cache ${hitRate}%`));
+    }
   }
 
   // Cost + burn rate
@@ -71,7 +68,7 @@ export function renderLine2(
 
   // Duration
   if (display.duration && input.cost) {
-    leftParts.push(`${ICONS.clock} ${formatDuration(input.cost.total_duration_ms)}`);
+    leftParts.push(`${icons.clock} ${formatDuration(input.cost.total_duration_ms)}`);
   }
 
   // Memory
@@ -79,9 +76,20 @@ export function renderLine2(
     leftParts.push(c.dim(`${memory.percentage}% mem`));
   }
 
+  // MCP servers
+  if (display.mcp && mcp) {
+    const total = mcp.servers.length;
+    const errors = mcp.servers.filter(s => s.status === 'error').length;
+    if (errors > 0) {
+      leftParts.push(c.red(`MCP ${total - errors}/${total}`));
+    } else {
+      leftParts.push(c.dim(`MCP ${total}`));
+    }
+  }
+
   // Token speed
   if (display.tokenSpeed && tokenSpeed != null) {
-    leftParts.push(c.dim(`${ICONS.bolt}${tokenSpeed} tok/s`));
+    leftParts.push(c.dim(`${icons.bolt}${tokenSpeed} tok/s`));
   }
 
   // Rate limits (only show if >=50%)
@@ -93,7 +101,7 @@ export function renderLine2(
     for (const [label, win] of limits) {
       if (!win || win.used_percentage < 50) continue;
       const colorFn = c[getQuotaColor(win.used_percentage)];
-      let limitStr = colorFn(`${ICONS.bolt} ${win.used_percentage.toFixed(0)}%(${label})`);
+      let limitStr = colorFn(`${icons.bolt} ${win.used_percentage.toFixed(0)}%(${label})`);
       if (win.used_percentage >= 70 && win.resets_at) {
         const countdown = formatCountdown(win.resets_at);
         if (countdown) limitStr += c.dim(` ${countdown}`);

@@ -17,7 +17,7 @@ export interface Colors {
   bold: (s: string) => string;
 }
 
-export function createColors(mode: ColorMode): Colors {
+export function createColors(mode: ColorMode, theme?: import('../themes.js').ThemePalette | null): Colors {
   const wrap = (code: string) => (s: string) => `${code}${s}${RST}`;
 
   // Named ANSI colors as default — respects terminal theme (like the original JS).
@@ -30,6 +30,17 @@ export function createColors(mode: ColorMode): Colors {
     blinkRed: wrap('\x1b[5;31m'), gray: wrap('\x1b[90m'),
     brightBlue: wrap('\x1b[94m'), dim: wrap('\x1b[2m'), bold: wrap('\x1b[1m'),
   };
+
+  // Theme overrides (truecolor only — resolveTheme returns null otherwise)
+  if (theme && mode === 'truecolor') {
+    return {
+      ...named,
+      cyan: wrap(theme.cyan), magenta: wrap(theme.magenta),
+      yellow: wrap(theme.yellow), green: wrap(theme.green),
+      orange: wrap(theme.orange), red: wrap(theme.red),
+      brightBlue: wrap(theme.brightBlue), gray: wrap(theme.gray),
+    };
+  }
 
   if (mode === 'truecolor') {
     return {
@@ -56,8 +67,11 @@ export function stripAnsi(str: string): string {
 }
 
 export function detectColorMode(): ColorMode {
-  // Default to named ANSI — respects terminal theme colors.
-  // Only upgrade if user explicitly sets colors.mode in config.
+  const colorterm = (process.env['COLORTERM'] ?? '').toLowerCase();
+  if (colorterm === 'truecolor' || colorterm === '24bit') return 'truecolor';
+  const term = process.env['TERM'] ?? '';
+  const termProgram = process.env['TERM_PROGRAM'] ?? '';
+  if (term.endsWith('-256color') || termProgram === 'iTerm.app' || termProgram === 'Hyper') return '256';
   return 'named';
 }
 

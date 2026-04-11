@@ -1,50 +1,33 @@
 import { basename } from 'node:path';
-import { ICONS } from './icons.js';
 import { fitSegments, truncField } from './text.js';
+import { getModelName, formatGitChanges, SEP } from './shared.js';
 import type { Colors } from './colors.js';
-import type { ClaudeCodeInput, GitStatus, TranscriptData, DisplayToggles } from '../types.js';
-
-const SEP = ` \x1b[90m│\x1b[0m `;
-
-function getModelName(model: ClaudeCodeInput['model']): string {
-  if (typeof model === 'string') return model;
-  if (model && typeof model === 'object' && 'display_name' in model) return model.display_name;
-  return '';
-}
+import type { RenderContext, TranscriptData } from '../types.js';
 
 function getActiveTodo(transcript: TranscriptData): string | undefined {
   const inProgress = transcript.todos.filter(t => t.status === 'in_progress');
   return inProgress[0]?.content;
 }
 
-export function renderLine1(
-  input: ClaudeCodeInput,
-  git: GitStatus,
-  transcript: TranscriptData,
-  c: Colors,
-  display: DisplayToggles,
-  cols: number
-): string {
+export function renderLine1(ctx: RenderContext, c: Colors): string {
+  const { input, git, transcript, config: { display }, cols, icons } = ctx;
   const left: string[] = [];
   const right: string[] = [];
 
   // Model
   if (display.model) {
     const modelName = getModelName(input.model);
-    if (modelName) left.push(c.cyan(`${ICONS.model} ${modelName}`));
+    if (modelName) left.push(c.cyan(`${icons.model} ${modelName}`));
   }
 
   // Branch + git changes
   if (display.branch && git.branch) {
     const branchLen = cols < 60 ? 12 : cols < 80 ? 20 : cols < 100 ? 30 : cols < 120 ? 40 : 60;
     const branchName = truncField(git.branch, branchLen);
-    let branchStr = c.magenta(`${ICONS.branch} ${branchName}`);
+    let branchStr = c.magenta(`${icons.branch} ${branchName}`);
 
     if (display.gitChanges) {
-      const parts: string[] = [];
-      if (git.staged > 0) parts.push(c.green(`+${git.staged}`));
-      if (git.modified > 0) parts.push(c.yellow(`!${git.modified}`));
-      if (git.untracked > 0) parts.push(c.gray(`?${git.untracked}`));
+      const parts = formatGitChanges(git, c);
       if (parts.length > 0) branchStr += ' ' + parts.join(' ');
     }
     left.push(branchStr);
@@ -56,7 +39,7 @@ export function renderLine1(
     if (cwd) {
       const dirName = basename(cwd) || cwd;
       const dirLen = cols < 80 ? 12 : cols < 120 ? 20 : 30;
-      left.push(c.brightBlue(`${ICONS.folder} ${truncField(dirName, dirLen)}`));
+      left.push(c.brightBlue(`${icons.folder} ${truncField(dirName, dirLen)}`));
     }
   }
 
@@ -77,12 +60,12 @@ export function renderLine1(
 
   // Worktree
   if (display.worktree && input.worktree?.name) {
-    right.push(c.gray(`${ICONS.tree} ${truncField(input.worktree.name, 15)}`));
+    right.push(c.gray(`${icons.tree} ${truncField(input.worktree.name, 15)}`));
   }
 
   // Agent
   if (display.agent && input.agent?.name) {
-    right.push(c.gray(`${ICONS.cubes} ${truncField(input.agent.name, 15)}`));
+    right.push(c.gray(`${icons.cubes} ${truncField(input.agent.name, 15)}`));
   }
 
   // Session name

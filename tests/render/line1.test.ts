@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { renderLine1 } from '../../src/render/line1.js';
-import { createColors } from '../../src/render/colors.js';
-import { stripAnsi } from '../../src/render/colors.js';
-import { EMPTY_GIT, EMPTY_TRANSCRIPT, DEFAULT_DISPLAY } from '../../src/types.js';
-import type { ClaudeCodeInput, GitStatus } from '../../src/types.js';
+import { createColors, stripAnsi } from '../../src/render/colors.js';
+import { EMPTY_GIT, EMPTY_TRANSCRIPT, DEFAULT_CONFIG, DEFAULT_DISPLAY } from '../../src/types.js';
+import type { ClaudeCodeInput, GitStatus, RenderContext } from '../../src/types.js';
+import { NERD_ICONS } from '../../src/render/icons.js';
 
 const c = createColors('named');
 
@@ -18,61 +18,69 @@ const baseInput: ClaudeCodeInput = {
 
 const git: GitStatus = { branch: 'main', staged: 1, modified: 2, untracked: 3 };
 
+function makeCtx(overrides: Partial<RenderContext> = {}): RenderContext {
+  return {
+    input: baseInput, git: EMPTY_GIT, transcript: EMPTY_TRANSCRIPT,
+    tokenSpeed: null, memory: null, gsd: null, mcp: null, cols: 120,
+    config: { ...DEFAULT_CONFIG, display: { ...DEFAULT_DISPLAY } },
+    icons: NERD_ICONS,
+    ...overrides,
+  };
+}
+
 describe('renderLine1', () => {
   it('shows model name', () => {
-    const out = stripAnsi(renderLine1(baseInput, EMPTY_GIT, EMPTY_TRANSCRIPT, c, DEFAULT_DISPLAY, 120));
+    const out = stripAnsi(renderLine1(makeCtx(), c));
     expect(out).toContain('Claude Opus 4');
   });
 
   it('shows branch', () => {
-    const out = stripAnsi(renderLine1(baseInput, git, EMPTY_TRANSCRIPT, c, DEFAULT_DISPLAY, 120));
+    const out = stripAnsi(renderLine1(makeCtx({ git }), c));
     expect(out).toContain('main');
   });
 
   it('shows git changes', () => {
-    const out = stripAnsi(renderLine1(baseInput, git, EMPTY_TRANSCRIPT, c, DEFAULT_DISPLAY, 120));
+    const out = stripAnsi(renderLine1(makeCtx({ git }), c));
     expect(out).toContain('+1');
     expect(out).toContain('!2');
     expect(out).toContain('?3');
   });
 
   it('shows directory', () => {
-    const out = stripAnsi(renderLine1(baseInput, EMPTY_GIT, EMPTY_TRANSCRIPT, c, DEFAULT_DISPLAY, 120));
+    const out = stripAnsi(renderLine1(makeCtx(), c));
     expect(out).toContain('project');
   });
 
   it('hides model when toggled off', () => {
-    const display = { ...DEFAULT_DISPLAY, model: false };
-    const out = stripAnsi(renderLine1(baseInput, EMPTY_GIT, EMPTY_TRANSCRIPT, c, display, 120));
+    const out = stripAnsi(renderLine1(makeCtx({ config: { ...DEFAULT_CONFIG, display: { ...DEFAULT_DISPLAY, model: false } } }), c));
     expect(out).not.toContain('Claude Opus 4');
   });
 
   it('hides branch when toggled off', () => {
-    const display = { ...DEFAULT_DISPLAY, branch: false };
-    const out = stripAnsi(renderLine1(baseInput, git, EMPTY_TRANSCRIPT, c, display, 120));
+    const out = stripAnsi(renderLine1(makeCtx({ git, config: { ...DEFAULT_CONFIG, display: { ...DEFAULT_DISPLAY, branch: false } } }), c));
     expect(out).not.toContain('main');
   });
 
   it('shows active task from todos', () => {
     const transcript = { ...EMPTY_TRANSCRIPT, todos: [{ id: '1', content: 'Fix the bug', status: 'in_progress' as const }] };
-    const out = stripAnsi(renderLine1(baseInput, EMPTY_GIT, transcript, c, DEFAULT_DISPLAY, 120));
+    const out = stripAnsi(renderLine1(makeCtx({ transcript }), c));
     expect(out).toContain('Fix the bug');
   });
 
   it('shows version', () => {
-    const out = stripAnsi(renderLine1(baseInput, EMPTY_GIT, EMPTY_TRANSCRIPT, c, DEFAULT_DISPLAY, 120));
+    const out = stripAnsi(renderLine1(makeCtx(), c));
     expect(out).toContain('v2.0.0');
   });
 
   it('shows lines changed', () => {
-    const out = stripAnsi(renderLine1(baseInput, EMPTY_GIT, EMPTY_TRANSCRIPT, c, DEFAULT_DISPLAY, 120));
+    const out = stripAnsi(renderLine1(makeCtx(), c));
     expect(out).toContain('+100');
     expect(out).toContain('-20');
   });
 
   it('handles object model with display_name', () => {
     const input = { ...baseInput, model: { display_name: 'Sonnet 3.7' } };
-    const out = stripAnsi(renderLine1(input, EMPTY_GIT, EMPTY_TRANSCRIPT, c, DEFAULT_DISPLAY, 120));
+    const out = stripAnsi(renderLine1(makeCtx({ input }), c));
     expect(out).toContain('Sonnet 3.7');
   });
 });
