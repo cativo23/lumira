@@ -7,19 +7,24 @@ export interface ClaudeCodeInput {
   cwd?: string;
   workspace?: { current_dir: string };
   context_window: {
+    context_window_size?: number;
     used_percentage: number;
     remaining_percentage: number;
+    current_usage?: number | { output_tokens: number };
     total_input_tokens?: number;
     total_output_tokens?: number;
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
-    current_usage?: { output_tokens: number };
   };
-  cost: {
+  cost?: {
     total_cost_usd: number;
     total_duration_ms: number;
     total_lines_added?: number;
     total_lines_removed?: number;
+  };
+  metrics?: {
+    models?: Record<string, unknown>;
+    files?: { total_lines_added?: number; total_lines_removed?: number };
   };
   transcript_path?: string;
   output_style?: { name: string };
