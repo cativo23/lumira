@@ -20,11 +20,12 @@ export function renderLine1(ctx: RenderContext, c: Colors): string {
     if (modelName) left.push(c.cyan(`${icons.model} ${modelName}`));
   }
 
-  // Branch + git changes
-  if (display.branch && git.branch) {
+  // Branch + git changes (prefer Qwen's native git.branch, fallback to external git)
+  const branchName = (input as any).git?.branch || git.branch;
+  if (display.branch && branchName) {
     const branchLen = cols < 60 ? 12 : cols < 80 ? 20 : cols < 100 ? 30 : cols < 120 ? 40 : 60;
-    const branchName = truncField(git.branch, branchLen);
-    let branchStr = c.magenta(`${icons.branch} ${branchName}`);
+    const bName = truncField(branchName, branchLen);
+    let branchStr = c.magenta(`${icons.branch} ${bName}`);
 
     if (display.gitChanges) {
       const parts = formatGitChanges(git, c);
@@ -43,10 +44,10 @@ export function renderLine1(ctx: RenderContext, c: Colors): string {
     }
   }
 
-  // Lines changed (right side)
-  if (display.linesChanged && input.cost) {
-    const added = (input.cost?.total_lines_added ?? input.metrics?.files?.total_lines_added) ?? 0;
-    const removed = (input.cost?.total_lines_removed ?? input.metrics?.files?.total_lines_removed) ?? 0;
+  // Lines changed (right side) — from Claude cost or Qwen metrics
+  if (display.linesChanged) {
+    const added = (input.cost?.total_lines_added ?? (input as any).metrics?.files?.total_lines_added) ?? 0;
+    const removed = (input.cost?.total_lines_removed ?? (input as any).metrics?.files?.total_lines_removed) ?? 0;
     if (added > 0 || removed > 0) {
       right.push(`${c.green(`+${added}`)} ${c.red(`-${removed}`)}`);
     }

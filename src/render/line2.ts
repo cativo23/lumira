@@ -87,6 +87,28 @@ export function renderLine2(ctx: RenderContext, c: Colors): string {
     }
   }
 
+  // Qwen Code: API metrics (requests, cached tokens, thoughts)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const qi = input as any;
+  if (qi.metrics?.models) {
+    const entries = Object.values(qi.metrics.models);
+    if (entries.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mm = entries[0] as any;
+      if (mm?.api?.total_requests > 0) {
+        let reqStr = `${mm.api.total_requests} req`;
+        if (mm.api.total_errors > 0) reqStr += c.red(` (${mm.api.total_errors} err)`);
+        leftParts.push(c.dim(`${icons.bolt} ${reqStr}`));
+      }
+      if (mm?.tokens?.cached > 0) {
+        leftParts.push(c.dim(`${icons.comment} ${formatTokens(mm.tokens.cached)} cached`));
+      }
+      if (mm?.tokens?.thoughts > 0) {
+        leftParts.push(c.dim(`^${formatTokens(mm.tokens.thoughts)} thought`));
+      }
+    }
+  }
+
   // Token speed
   if (display.tokenSpeed && tokenSpeed != null) {
     leftParts.push(c.dim(`${icons.bolt}${tokenSpeed} tok/s`));
