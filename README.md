@@ -133,28 +133,9 @@ lumira --gsd        # Enable GSD integration
 lumira --qwen       # Force Qwen Code single-line output
 ```
 
-### Qwen Code Support
+### Qwen Code
 
-Lumira detects the platform automatically. When running under Qwen Code, it parses Qwen-specific fields:
-
-```jsonc
-{
-  "git": { "branch": "main" },
-  "metrics": {
-    "models": {
-      "qwen-coder-plus": {
-        "api": { "total_requests": 42, "total_errors": 0, "total_latency_ms": 12000 },
-        "tokens": { "prompt": 15000, "completion": 5000, "total": 20000, "cached": 8000, "thoughts": 150 }
-      }
-    },
-    "files": { "total_lines_added": 150, "total_lines_removed": 30 }
-  }
-}
-```
-
-The `--qwen` preset is recommended for Qwen Code, which renders a single line with model, context bar, requests, cached tokens, and thoughts.
-
-#### Qwen Code Setup
+Lumira auto-detects the platform. For Qwen Code, use the `--qwen` preset for a single-line output with model, context bar, requests, cached tokens, and thoughts:
 
 ```json
 {
