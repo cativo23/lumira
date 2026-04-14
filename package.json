@@ -1,6 +1,6 @@
 {
   "name": "lumira",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "lumira — real-time statusline for Claude Code",
   "type": "module",
   "main": "dist/index.js",
