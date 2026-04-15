@@ -1,6 +1,6 @@
-import { padLine, displayWidth } from './text.js';
+import { padLine } from './text.js';
 import { getQuotaColor, type Colors } from './colors.js';
-import { buildContextBar, SEP } from './shared.js';
+import { buildContextBar, formatQwenMetrics, SEP } from './shared.js';
 import { formatTokens, formatDuration, formatCost, formatBurnRate } from '../utils/format.js';
 import type { RenderContext } from '../types.js';
 
@@ -24,51 +24,51 @@ export function renderLine2(ctx: RenderContext, c: Colors): string {
 
   // Context bar
   if (display.contextBar) {
-    const pct = input.context_window.used_percentage;
+    const pct = input.context.usedPercentage;
     leftParts.push(buildContextBar(pct, c, { iconSet: icons }));
   }
 
   // Context tokens (estimated used/capacity from percentage)
-  if (display.contextTokens && input.context_window.total_input_tokens != null && input.context_window.used_percentage > 0) {
-    const used = input.context_window.total_input_tokens;
-    const capacity = Math.round(used / (input.context_window.used_percentage / 100));
+  if (display.contextTokens && input.tokens.input > 0 && input.context.usedPercentage > 0) {
+    const used = input.tokens.input;
+    const capacity = Math.round(used / (input.context.usedPercentage / 100));
     leftParts.push(c.dim(`${formatTokens(used)}/${formatTokens(capacity)}`));
   }
 
   // Tokens
   if (display.tokens) {
-    const inTokens = input.context_window.total_input_tokens;
-    const outTokens = input.context_window.total_output_tokens;
+    const inTokens = input.tokens.input;
+    const outTokens = input.tokens.output;
     const parts: string[] = [];
-    if (inTokens != null) parts.push(`${formatTokens(inTokens)}↑`);
-    if (outTokens != null) parts.push(`${formatTokens(outTokens)}↓`);
+    if (inTokens > 0) parts.push(`${formatTokens(inTokens)}↑`);
+    if (outTokens > 0) parts.push(`${formatTokens(outTokens)}↓`);
     if (parts.length > 0) leftParts.push(`${icons.comment} ${parts.join(' ')}`);
   }
 
   // Cache metrics (hit rate)
   if (display.cacheMetrics) {
-    const cacheRead = input.context_window.cache_read_input_tokens;
-    const totalIn = input.context_window.total_input_tokens;
-    if (cacheRead != null && totalIn != null && totalIn > 0) {
+    const cacheRead = input.tokens.cached;
+    const totalIn = input.tokens.input;
+    if (cacheRead != null && totalIn > 0) {
       const hitRate = Math.round((cacheRead / totalIn) * 100);
       leftParts.push(c.dim(`cache ${hitRate}%`));
     }
   }
 
-  // Cost + burn rate
-  if (display.cost && input.cost) {
-    const costStr = formatCost(input.cost.total_cost_usd);
+  // Cost + burn rate (Claude only — Qwen doesn't send cost data)
+  if (display.cost && input.cost != null) {
+    const costStr = formatCost(input.cost);
     let costPart = costStr;
-    if (display.burnRate) {
-      const burn = formatBurnRate(input.cost.total_cost_usd, input.cost.total_duration_ms);
+    if (display.burnRate && input.durationMs != null) {
+      const burn = formatBurnRate(input.cost, input.durationMs);
       if (burn) costPart += ` ${c.dim(burn)}`;
     }
     leftParts.push(costPart);
   }
 
-  // Duration
-  if (display.duration && input.cost) {
-    leftParts.push(`${icons.clock} ${formatDuration(input.cost.total_duration_ms)}`);
+  // Duration (Claude only)
+  if (display.duration && input.durationMs != null) {
+    leftParts.push(`${icons.clock} ${formatDuration(input.durationMs)}`);
   }
 
   // Memory
@@ -87,23 +87,26 @@ export function renderLine2(ctx: RenderContext, c: Colors): string {
     }
   }
 
+  // Qwen metrics (shared helper)
+  leftParts.push(...formatQwenMetrics(input, c, icons));
+
   // Token speed
   if (display.tokenSpeed && tokenSpeed != null) {
     leftParts.push(c.dim(`${icons.bolt}${tokenSpeed} tok/s`));
   }
 
   // Rate limits (only show if >=50%)
-  if (display.rateLimits && input.rate_limits) {
-    const limits: [string, typeof input.rate_limits.five_hour][] = [
-      ['5h', input.rate_limits.five_hour],
-      ['7d', input.rate_limits.seven_day],
+  if (display.rateLimits && input.rateLimits) {
+    const limits: [string, typeof input.rateLimits.fiveHour][] = [
+      ['5h', input.rateLimits.fiveHour],
+      ['7d', input.rateLimits.sevenDay],
     ];
     for (const [label, win] of limits) {
-      if (!win || win.used_percentage < 50) continue;
-      const colorFn = c[getQuotaColor(win.used_percentage)];
-      let limitStr = colorFn(`${icons.bolt} ${win.used_percentage.toFixed(0)}%(${label})`);
-      if (win.used_percentage >= 70 && win.resets_at) {
-        const countdown = formatCountdown(win.resets_at);
+      if (!win || win.usedPercentage < 50) continue;
+      const colorFn = c[getQuotaColor(win.usedPercentage)];
+      let limitStr = colorFn(`${icons.bolt} ${win.usedPercentage.toFixed(0)}%(${label})`);
+      if (win.usedPercentage >= 70 && win.resetsAt) {
+        const countdown = formatCountdown(win.resetsAt);
         if (countdown) limitStr += c.dim(` ${countdown}`);
       }
       leftParts.push(limitStr);
@@ -111,8 +114,8 @@ export function renderLine2(ctx: RenderContext, c: Colors): string {
   }
 
   // Right side: vim mode
-  if (display.vim && input.vim?.mode) {
-    rightParts.push(c.dim(`[${input.vim.mode}]`));
+  if (display.vim && input.vimMode) {
+    rightParts.push(c.dim(`[${input.vimMode}]`));
   }
 
   // Right side: effort (hidden if medium)
