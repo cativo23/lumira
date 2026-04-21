@@ -131,3 +131,70 @@ describe('interactiveSelect — navigation', () => {
     expect(out).toContain('\x1b[?25l'); // hide-cursor (written earlier)
   });
 });
+
+describe('interactiveSelect — abort and resize', () => {
+  const makeOpts = () => ({
+    stdin: createMockStdin(true),
+    stdout: createMockStdout(),
+    title: 'pick',
+    options: [{ label: 'a', value: 'a' }, { label: 'b', value: 'b' }],
+    initial: 'a',
+    preview: () => '',
+  });
+
+  it('Esc resolves with null', async () => {
+    const opts = makeOpts();
+    const promise = interactiveSelect(opts);
+    await new Promise((r) => setImmediate(r));
+    opts.stdin.pressKey('escape');
+    expect(await promise).toBeNull();
+  });
+
+  it('q resolves with null', async () => {
+    const opts = makeOpts();
+    const promise = interactiveSelect(opts);
+    await new Promise((r) => setImmediate(r));
+    opts.stdin.pressKey('q');
+    expect(await promise).toBeNull();
+  });
+
+  it('Ctrl+C resolves with null', async () => {
+    const opts = makeOpts();
+    const promise = interactiveSelect(opts);
+    await new Promise((r) => setImmediate(r));
+    opts.stdin.pressKey('c', { ctrl: true });
+    expect(await promise).toBeNull();
+  });
+
+  it('stdin end event resolves with null', async () => {
+    const opts = makeOpts();
+    const promise = interactiveSelect(opts);
+    await new Promise((r) => setImmediate(r));
+    opts.stdin.emitEnd();
+    expect(await promise).toBeNull();
+  });
+
+  it('resize event triggers a re-render', async () => {
+    const opts = makeOpts();
+    const promise = interactiveSelect(opts);
+    await new Promise((r) => setImmediate(r));
+    const beforeCount = opts.stdout.written.filter((c) => c.includes('\x1b[2J')).length;
+    opts.stdout.emit('resize');
+    await new Promise((r) => setImmediate(r));
+    const afterCount = opts.stdout.written.filter((c) => c.includes('\x1b[2J')).length;
+    expect(afterCount).toBeGreaterThan(beforeCount);
+    opts.stdin.pressKey('return');
+    await promise;
+  });
+
+  it('cleans up resize and end listeners after abort', async () => {
+    const opts = makeOpts();
+    const promise = interactiveSelect(opts);
+    await new Promise((r) => setImmediate(r));
+    opts.stdin.pressKey('escape');
+    await promise;
+    // After cleanup, there should be no more listeners on 'resize' / 'end'
+    expect(opts.stdout.listenerCount('resize')).toBe(0);
+    expect(opts.stdin.listenerCount('end')).toBe(0);
+  });
+});
