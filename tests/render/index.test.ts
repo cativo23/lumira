@@ -2,11 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { render } from '../../src/render/index.js';
 import { EMPTY_GIT, EMPTY_TRANSCRIPT, DEFAULT_CONFIG, type RenderContext } from '../../src/types.js';
 import { NERD_ICONS, EMOJI_ICONS } from '../../src/render/icons.js';
-import { normalize } from '../../src/normalize.js';
+import { normalize, type Platform } from '../../src/normalize.js';
 
 function makeCtx(ov: Partial<RenderContext> = {}): RenderContext {
   const rawInput = { model: 'Opus', session_id: 't', context_window: { used_percentage: 50, remaining_percentage: 50 }, cost: { total_cost_usd: 1, total_duration_ms: 60000 }, workspace: { current_dir: '/p' } } as any;
   return { input: normalize(rawInput), git: EMPTY_GIT, transcript: EMPTY_TRANSCRIPT, tokenSpeed: null, memory: null, gsd: null, mcp: null, cols: 120, config: { ...DEFAULT_CONFIG }, icons: NERD_ICONS, ...ov };
+}
+
+function makeCtxWithPlatform(platform: Platform, layout: typeof DEFAULT_CONFIG['layout'] = 'multiline'): RenderContext {
+  const base = makeCtx({ config: { ...DEFAULT_CONFIG, layout } });
+  return { ...base, input: { ...base.input, platform } };
 }
 
 describe('render', () => {
@@ -20,5 +25,9 @@ describe('render', () => {
   it('renders with emoji icons without crashing', () => {
     const out = render(makeCtx({ icons: EMOJI_ICONS }));
     expect(out.length).toBeGreaterThan(0);
+  });
+  it('forces singleline when input platform is qwen-code, even with multiline layout', () => {
+    const out = render(makeCtxWithPlatform('qwen-code', 'multiline'));
+    expect(out.split('\n').length).toBeLessThanOrEqual(1);
   });
 });
