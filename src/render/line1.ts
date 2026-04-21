@@ -23,7 +23,7 @@ export function renderLine1(ctx: RenderContext, c: Colors): string {
   // Branch + git changes (prefer Qwen's native git.branch, fallback to external git)
   const branchName = input.gitBranch || git.branch;
   if (display.branch && branchName) {
-    const branchLen = cols < 60 ? 20 : cols < 80 ? 35 : cols < 100 ? 50 : cols < 120 ? 70 : 100;
+    const branchLen = cols < 60 ? 20 : cols < 80 ? 35 : cols < 100 ? 50 : cols < 120 ? 70 : 80;
     const bName = truncField(branchName, branchLen);
     let branchStr = c.magenta(`${icons.branch} ${bName}`);
 

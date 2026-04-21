@@ -84,4 +84,26 @@ describe('renderLine1', () => {
     const out = stripAnsi(renderLine1(makeCtx({}, inputOverride), c));
     expect(out).toContain('Sonnet 3.7');
   });
+
+  it('truncates long branch at narrow terminal (cols=59)', () => {
+    const longBranch = 'feat/ca-71-some-very-long-branch-description-that-exceeds-limit';
+    const out = stripAnsi(renderLine1(makeCtx({ git: { ...git, branch: longBranch }, cols: 59 }), c));
+    expect(out).not.toContain(longBranch);
+    expect(out).toContain('…');
+  });
+
+  it('shows more branch text at wide terminal than at narrow', () => {
+    const longBranch = 'feat/ca-71-some-long-description-that-was-truncated-before';
+    const narrow = stripAnsi(renderLine1(makeCtx({ git: { ...git, branch: longBranch }, cols: 79 }), c));
+    const wide = stripAnsi(renderLine1(makeCtx({ git: { ...git, branch: longBranch }, cols: 120 }), c));
+    const branchInNarrow = narrow.match(/feat\/[^\s]*/)?.[0] ?? '';
+    const branchInWide = wide.match(/feat\/[^\s]*/)?.[0] ?? '';
+    expect(branchInWide.length).toBeGreaterThan(branchInNarrow.length);
+  });
+
+  it('does not overflow layout at cols=120 with long model and branch', () => {
+    const longBranch = 'feat/ca-71-some-long-description-that-was-truncated-before';
+    const out = stripAnsi(renderLine1(makeCtx({ git: { ...git, branch: longBranch }, cols: 120 }), c));
+    expect(out.length).toBeLessThanOrEqual(120);
+  });
 });
