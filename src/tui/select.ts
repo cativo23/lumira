@@ -1,3 +1,4 @@
+import readline from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 
 export interface SelectOption<T> {
@@ -28,20 +29,77 @@ export interface SelectOpts<T> {
   stdout?: SelectStdout;
 }
 
-/**
- * Interactive single-select prompt. Resolves with the chosen value, or null
- * when stdin is not a TTY (piped input), when the user aborts (Esc / q /
- * Ctrl+C — added in Task 7), or when stdin closes.
- *
- * This is the Task 5 scaffold: only the non-TTY short-circuit is wired up.
- * Navigation, abort keys, preview rendering, and resize handling arrive in
- * Tasks 6 and 7.
- */
+interface KeypressKey {
+  name?: string;
+  ctrl?: boolean;
+  shift?: boolean;
+  meta?: boolean;
+}
+
+const SHOW_CURSOR = '\x1b[?25h';
+const HIDE_CURSOR = '\x1b[?25l';
+const CLEAR_SCREEN = '\x1b[2J\x1b[H';
+
 export async function interactiveSelect<T>(opts: SelectOpts<T>): Promise<T | null> {
   const stdin = (opts.stdin ?? process.stdin) as SelectStdin;
+  const stdout = (opts.stdout ?? process.stdout) as SelectStdout;
   if (!stdin.isTTY) return null;
 
-  // TODO(Task 6): render loop + navigation + Enter.
-  // TODO(Task 7): abort keys + stdin end + resize + cleanup.
-  return null;
+  const options = opts.options;
+  const initialIdx = options.findIndex((o) => o.value === opts.initial);
+  let focus = initialIdx >= 0 ? initialIdx : 0;
+
+  let keypressListener: ((str: string, key: KeypressKey) => void) | null = null;
+
+  const cleanup = () => {
+    if (keypressListener) stdin.removeListener?.('keypress', keypressListener);
+    if (typeof stdin.setRawMode === 'function') stdin.setRawMode(false);
+    stdin.pause?.();
+    stdout.write?.(SHOW_CURSOR);
+  };
+
+  const render = () => {
+    stdout.write?.(CLEAR_SCREEN);
+    stdout.write?.(` ${opts.title}\n\n`);
+    for (let i = 0; i < options.length; i++) {
+      const o = options[i];
+      const marker = i === focus ? ' ❯ ' : '   ';
+      const desc = o.description ? '  ' + o.description : '';
+      stdout.write?.(`${marker}${o.label}${desc}\n`);
+    }
+    stdout.write?.('\n');
+    stdout.write?.(opts.preview(options[focus].value));
+    stdout.write?.('\n');
+  };
+
+  try {
+    readline.emitKeypressEvents(stdin as NodeJS.ReadStream);
+    if (typeof stdin.setRawMode === 'function') stdin.setRawMode(true);
+    stdin.resume?.();
+    stdout.write?.(HIDE_CURSOR);
+    render();
+
+    return await new Promise<T | null>((resolve) => {
+      keypressListener = (_str, key) => {
+        if (!key || !key.name) return;
+        if (key.name === 'down' || key.name === 'j') {
+          focus = (focus + 1) % options.length;
+          render();
+          return;
+        }
+        if (key.name === 'up' || key.name === 'k') {
+          focus = (focus - 1 + options.length) % options.length;
+          render();
+          return;
+        }
+        if (key.name === 'return') {
+          resolve(options[focus].value);
+          return;
+        }
+      };
+      stdin.on('keypress', keypressListener);
+    });
+  } finally {
+    cleanup();
+  }
 }
