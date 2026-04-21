@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { install, uninstall } from '../src/installer.js';
@@ -204,5 +204,69 @@ describe('install — wizard integration', () => {
     const cfg = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(cfg.display).toEqual({ tokens: false });
     expect(cfg.preset).toBe('balanced');
+  });
+});
+
+describe('install — skill dual install for Qwen', () => {
+  let tmpHome: string;
+  let claudeHome: string;
+  let qwenHome: string;
+
+  beforeEach(() => {
+    tmpHome = mkdtempSync(join(tmpdir(), 'lumira-home-'));
+    claudeHome = join(tmpHome, '.claude');
+    qwenHome = join(tmpHome, '.qwen');
+    mkdirSync(claudeHome, { recursive: true });
+  });
+  afterEach(() => { rmSync(tmpHome, { recursive: true, force: true }); });
+
+  it('installs skill only under .claude when ~/.qwen/ does not exist', async () => {
+    const settingsPath = join(claudeHome, 'settings.json');
+    const configPath = join(tmpHome, 'config.json');
+    const stdin = createMockStdin(false);
+
+    await install({
+      settingsPath, configPath,
+      confirm: async () => true,
+      stdin,
+      homeOverride: tmpHome,
+    });
+
+    expect(existsSync(join(claudeHome, 'skills', 'lumira', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(qwenHome, 'skills', 'lumira', 'SKILL.md'))).toBe(false);
+  });
+
+  it('installs skill under both .claude and .qwen when ~/.qwen/ exists', async () => {
+    mkdirSync(qwenHome, { recursive: true });
+    const settingsPath = join(claudeHome, 'settings.json');
+    const configPath = join(tmpHome, 'config.json');
+    const stdin = createMockStdin(false);
+
+    const output = await install({
+      settingsPath, configPath,
+      confirm: async () => true,
+      stdin,
+      homeOverride: tmpHome,
+    });
+
+    expect(existsSync(join(claudeHome, 'skills', 'lumira', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(qwenHome, 'skills', 'lumira', 'SKILL.md'))).toBe(true);
+    // Qwen-detection notice appears in summary
+    expect(output.toLowerCase()).toContain('qwen');
+  });
+
+  it('uninstall removes skill from both destinations', () => {
+    mkdirSync(join(claudeHome, 'skills', 'lumira'), { recursive: true });
+    writeFileSync(join(claudeHome, 'skills', 'lumira', 'SKILL.md'), 'dummy');
+    mkdirSync(join(qwenHome, 'skills', 'lumira'), { recursive: true });
+    writeFileSync(join(qwenHome, 'skills', 'lumira', 'SKILL.md'), 'dummy');
+
+    const settingsPath = join(claudeHome, 'settings.json');
+    writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: 'npx lumira@latest' } }));
+
+    uninstall({ settingsPath, homeOverride: tmpHome });
+
+    expect(existsSync(join(claudeHome, 'skills', 'lumira', 'SKILL.md'))).toBe(false);
+    expect(existsSync(join(qwenHome, 'skills', 'lumira', 'SKILL.md'))).toBe(false);
   });
 });

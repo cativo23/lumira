@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync, rmdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +36,7 @@ export interface InstallerOptions {
     setRawMode?: (flag: boolean) => unknown;
   });
   stdout?: NodeJS.WriteStream | (import('node:stream').Writable & { columns?: number });
+  homeOverride?: string;
 }
 
 function defaultSettingsPath(): string {
@@ -64,12 +65,10 @@ export function promptYN(question: string): Promise<boolean> {
 }
 
 // ── Skill installer ─────────────────────────────────────────────────
-function installSkill(): string[] {
+function installSkill(opts: { homeOverride?: string } = {}): string[] {
   const lines: string[] = [];
-  const destDir = join(homedir(), '.claude', 'skills', 'lumira');
-  const destFile = join(destDir, 'SKILL.md');
+  const home = opts.homeOverride ?? homedir();
 
-  // Resolve skill source: dist/../skills/lumira/SKILL.md
   const thisDir = dirname(fileURLToPath(import.meta.url));
   const srcFile = resolve(thisDir, '..', 'skills', 'lumira', 'SKILL.md');
 
@@ -78,12 +77,22 @@ function installSkill(): string[] {
     return lines;
   }
 
-  try {
-    mkdirSync(destDir, { recursive: true });
-    copyFileSync(srcFile, destFile);
-    lines.push(ok(`Installed ${DIM}/lumira${RST} skill → ${DIM}~/.claude/skills/lumira/${RST}`));
-  } catch {
-    lines.push(warn('Could not install /lumira skill — copy manually from skills/lumira/SKILL.md'));
+  const destinations = [
+    { label: 'claude', dir: join(home, '.claude') },
+    { label: 'qwen',   dir: join(home, '.qwen')   },
+  ];
+
+  for (const { label, dir } of destinations) {
+    if (label === 'qwen' && !existsSync(dir)) continue;
+    const destDir = join(dir, 'skills', 'lumira');
+    const destFile = join(destDir, 'SKILL.md');
+    try {
+      mkdirSync(destDir, { recursive: true });
+      copyFileSync(srcFile, destFile);
+      lines.push(ok(`Installed ${DIM}/lumira${RST} skill → ${DIM}${destDir}/${RST}`));
+    } catch {
+      lines.push(warn(`Could not install /lumira skill to ${destDir}`));
+    }
   }
 
   return lines;
@@ -155,7 +164,7 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
         lines.push(ok('lumira is already configured as your statusline'));
         saveConfig(wizard, configPath);
         lines.push(ok(`Saved config → ${DIM}${configPath}${RST}`));
-        lines.push(...installSkill());
+        lines.push(...installSkill({ homeOverride: opts.homeOverride }));
         return lines.join('\n') + '\n';
       }
 
@@ -179,7 +188,14 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
     saveConfig(wizard, configPath);
     lines.push(ok(`Saved config → ${DIM}${configPath}${RST}`));
 
-    lines.push(...installSkill());
+    lines.push(...installSkill({ homeOverride: opts.homeOverride }));
+
+    if (existsSync(join(opts.homeOverride ?? homedir(), '.qwen'))) {
+      lines.push('');
+      lines.push('  \u2139 Qwen Code detected — in Qwen sessions, lumira renders');
+      lines.push('    single-line automatically. Your preset above applies to Claude Code.');
+    }
+
     lines.push(`\n  Restart Claude Code to see your statusline.\n`);
     return lines.join('\n') + '\n';
   }
@@ -201,7 +217,7 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
   if (settings.statusLine) {
     if (isLumira(settings.statusLine)) {
       lines.push(ok('lumira is already configured as your statusline'));
-      lines.push(...installSkill());
+      lines.push(...installSkill({ homeOverride: opts.homeOverride }));
       return lines.join('\n') + '\n';
     }
 
@@ -222,7 +238,7 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', { mode: 0o600 });
   lines.push(ok('Configured lumira as statusline'));
 
-  lines.push(...installSkill());
+  lines.push(...installSkill({ homeOverride: opts.homeOverride }));
   lines.push(`\n  Restart Claude Code to see your statusline.\n`);
   return lines.join('\n') + '\n';
 }
@@ -231,6 +247,7 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
 export function uninstall(opts: InstallerOptions = {}): string {
   const settingsPath = opts.settingsPath ?? defaultSettingsPath();
   const backupPath = settingsPath + '.lumira.bak';
+  const home = opts.homeOverride ?? homedir();
   const lines: string[] = [header()];
 
   if (!existsSync(settingsPath)) {
@@ -244,6 +261,18 @@ export function uninstall(opts: InstallerOptions = {}): string {
       copyFileSync(backupPath, settingsPath);
       unlinkSync(backupPath);
       lines.push(ok('Restored previous settings from backup'));
+
+      // Remove skill from both destinations (best effort)
+      for (const root of [join(home, '.claude'), join(home, '.qwen')]) {
+        const skillFile = join(root, 'skills', 'lumira', 'SKILL.md');
+        if (existsSync(skillFile)) {
+          try {
+            unlinkSync(skillFile);
+            try { rmdirSync(dirname(skillFile)); } catch { /* dir not empty, ok */ }
+          } catch { /* best effort */ }
+        }
+      }
+
       lines.push(`\n  Restart Claude Code to apply changes.\n`);
       return lines.join('\n') + '\n';
     } catch {
@@ -259,6 +288,17 @@ export function uninstall(opts: InstallerOptions = {}): string {
     lines.push(ok('Removed lumira statusline from settings'));
   } catch {
     lines.push(warn('Could not parse settings.json'));
+  }
+
+  // Remove skill from both destinations (best effort)
+  for (const root of [join(home, '.claude'), join(home, '.qwen')]) {
+    const skillFile = join(root, 'skills', 'lumira', 'SKILL.md');
+    if (existsSync(skillFile)) {
+      try {
+        unlinkSync(skillFile);
+        try { rmdirSync(dirname(skillFile)); } catch { /* dir not empty, ok */ }
+      } catch { /* best effort */ }
+    }
   }
 
   lines.push(`\n  Restart Claude Code to apply changes.\n`);
