@@ -12,7 +12,8 @@ export function render(ctx: RenderContext): string {
   const theme = resolveTheme(ctx.config.theme, colorMode);
   const c = createColors(colorMode, theme);
 
-  if (ctx.config.layout === 'singleline' || (ctx.config.layout === 'auto' && ctx.cols < 70)) {
+  const isQwen = ctx.input.platform === 'qwen-code';
+  if (isQwen || ctx.config.layout === 'singleline' || (ctx.config.layout === 'auto' && ctx.cols < 70)) {
     return renderMinimal(ctx, c);
   }
 

@@ -49,6 +49,15 @@ Each is a boolean (`true`/`false`):
 - `true` — show GSD task info
 - `false` — hide GSD section
 
+## Platform Support
+
+Lumira auto-detects the caller's platform:
+
+- **Claude Code** — renders per your configured `layout` / `preset`.
+- **Qwen Code** — renders compact single-line output automatically, regardless of `layout`. Qwen Code only displays the first line of statusline commands, so lumira always uses the single-line renderer (which fits model, branch, context bar, cost, cached tokens, and thoughts into one line).
+
+No configuration needed. One `config.json` serves both CLIs.
+
 ## Example Configs
 
 Minimal with emoji icons:

@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Interactive install wizard (`npx lumira install`): choose preset, theme, and icons with arrow-key navigation and a live preview. Pre-selects current config values when re-running.
+- ASCII banner printed on install with dynamic version from `package.json`.
+- `/lumira` skill is now installed for Qwen Code as well (when `~/.qwen/` is detected).
+- Render layer auto-switches to single-line output when the caller is Qwen Code, so Qwen users see the rich compact line regardless of their configured layout.
+
+### Changed
+- `saveConfig` writes `~/.config/lumira/config.json` atomically (tmp file + rename) with `0o600` permissions, preserving any keys the user set by hand.
+
+### Removed
+- **BREAKING:** `qwen` preset removed. It was functionally identical to `minimal`; with the render-layer auto-switch, the alias no longer serves a purpose. Existing configs with `preset: "qwen"` are silently coerced to `minimal` and a one-shot stderr warning is printed. CLI flag `--qwen` is removed; use `--minimal` instead.
+
+## [0.3.0] - 2026-04-15
+
+### Added
+
+- Full Qwen Code statusline compatibility — lumira now renders statuslines for both Claude Code and Qwen Code
+- `normalize()` layer: single source of truth that unifies platform payloads into `NormalizedInput`
+- `sanitizeTermString()`: strips C0, C1, and DEL control characters from all untrusted string fields before terminal output
+- `--qwen` preset for compact single-line Qwen output
+- `QwenInput` interface and `isQwenInput()` type guard with `api` sub-object discriminant
+- `formatQwenMetrics()` shared helper for DRY rendering of Qwen API metrics
+- `rateLimits` and `cacheHitRate` fields in `NormalizedInput`
+- Qwen-native git branch, API metrics (requests/errors/latency), cached tokens, and reasoning thoughts display
+- 26 sanitization and edge case tests — normalize.ts at 100% coverage
+- AGENTS.md following official agents.md spec
+
+### Changed
+
+- Renderers consume `NormalizedInput` exclusively — zero `isQwenInput()` calls in the render layer
+- `isQwenInput()` strengthened to check `api` sub-object, preventing false positives
+- External git branch sanitized in `parseGitStatus()` with C0+C1+DEL regex
+- `buildContextBar` simplified — removed dead `pctInsideBar` branch
+- Model fallback changed from `'unknown'` to `''` (renderers skip empty model)
+
+### Security
+
+- All string fields from stdin JSON sanitized via `sanitizeTermString()` in normalize: model, sessionId, version, cwd, gitBranch, vimMode, sessionName, outputStyle, agentName, worktreeName
+- Sanitization regex covers full C0 (`\x00-\x1f`), C1 (`\x80-\x9f`), and DEL (`\x7f`) ranges
+- External git parser output sanitized before reaching terminal
+
 ## [0.2.2] - 2026-04-14
 
 ### Changed
@@ -96,7 +137,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GSD session IDs sanitized against path traversal
 - `execFile` used instead of `exec` to prevent shell injection (except terminal width detection where shell redirect is required with procfs-sourced paths)
 
-[Unreleased]: https://github.com/cativo23/lumira/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/cativo23/lumira/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/cativo23/lumira/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/cativo23/lumira/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/cativo23/lumira/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/cativo23/lumira/compare/v0.1.0...v0.2.0
