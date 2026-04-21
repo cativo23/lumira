@@ -112,8 +112,8 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
 
   if (runInteractive) {
     const configPath = opts.configPath as string;
-    const stdin = opts.stdin;
-    const stdout = opts.stdout;
+    const stdin = opts.stdin ?? process.stdin;
+    const stdout = opts.stdout ?? process.stdout;
 
     // Print banner on TTY
     if (stdin?.isTTY) {
