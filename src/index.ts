@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { fileURLToPath } from 'node:url';
 import { realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { readStdin as defaultReadStdin } from './stdin.js';
 import { parseGitStatus } from './parsers/git.js';
 import { parseTranscript } from './parsers/transcript.js';
@@ -69,7 +71,8 @@ function isDirectRun(): boolean {
 if (isDirectRun()) {
   const cmd = process.argv[2];
   if (cmd === 'install') {
-    install().then(o => process.stdout.write(o)).catch(e => process.stderr.write(`Install error: ${e.message}\n`));
+    const configPath = join(homedir(), '.config', 'lumira', 'config.json');
+    install({ configPath }).then(o => process.stdout.write(o)).catch(e => process.stderr.write(`Install error: ${e.message}\n`));
   } else if (cmd === 'uninstall') {
     const o = uninstall();
     process.stdout.write(o);
