@@ -166,6 +166,14 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
         saveConfig(wizard, configPath);
         lines.push(ok(`Saved config → ${DIM}${configPath}${RST}`));
         lines.push(...installSkill({ homeOverride: opts.homeOverride }));
+
+        if (existsSync(join(opts.homeOverride ?? homedir(), '.qwen'))) {
+          lines.push('');
+          lines.push('  \u2139 Qwen Code detected — in Qwen sessions, lumira renders');
+          lines.push('    single-line automatically. Your preset above applies to Claude Code.');
+        }
+
+        lines.push(`\n  Restart Claude Code to see your statusline.\n`);
         return lines.join('\n') + '\n';
       }
 
