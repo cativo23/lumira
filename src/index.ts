@@ -25,7 +25,7 @@ const defaultDeps: Dependencies = {
   parseTranscript: (path) => parseTranscript(path),
   getTokenSpeed: (ctx) => getTokenSpeed(ctx),
   getMemoryInfo: () => getMemoryInfo(),
-  getGsdInfo: (session) => getGsdInfo(session),
+  getGsdInfo: (cwd) => getGsdInfo(cwd),
   getMcpInfo: (cwd) => getMcpInfo(cwd),
   getTermCols: () => getTermCols(),
 };
@@ -44,7 +44,7 @@ export async function main(overrides: Partial<Dependencies> = {}): Promise<strin
 
   const tokenSpeed = deps.getTokenSpeed(input.context_window);
   const memory = deps.getMemoryInfo();
-  const gsd = config.gsd ? deps.getGsdInfo(input.session_id) : null;
+  const gsd = config.gsd ? deps.getGsdInfo(cwd) : null;
   const mcp = deps.getMcpInfo(cwd);
 
   const rawCols = deps.getTermCols();

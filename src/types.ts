@@ -238,7 +238,7 @@ export interface Dependencies {
   parseTranscript: (path: string) => Promise<TranscriptData>;
   getTokenSpeed: (contextWindow: ClaudeCodeInput['context_window']) => number | null;
   getMemoryInfo: () => MemoryInfo | null;
-  getGsdInfo: (session: string) => GsdInfo | null;
+  getGsdInfo: (cwd: string) => GsdInfo | null;
   getMcpInfo: (cwd: string) => McpInfo | null;
   getTermCols: () => number;
   loadConfig?: () => HudConfig;
