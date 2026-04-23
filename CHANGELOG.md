@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-23
+
+### Added
+- **`LUMIRA_DEBUG=1` env flag** for diagnostic logging. Writes to stderr so statusline stdout stays clean. Instruments transcript, GSD, and MCP parsers with decision traces (cache hits/misses, `.planning/STATE.md` resolution, which `.mcp.json` loaded which servers, malformed JSON). Useful when investigating "why doesn't X show up?" reports. Denylist accepts `0`/`false`/`no`/`off` (case-insensitive) for explicit disable.
+
+### Security
+- **`line1` renderer now reads from the normalized input layer** instead of raw stdin JSON. `input.worktreeName`, `input.agentName`, `input.sessionName`, and `input.outputStyle` have already passed through `sanitizeTermString()` (strips C0/C1/DEL control chars). Previously line1 was reading `input.raw.*` directly, bypassing that guard — same class of vulnerability as #14/#15, now closed.
+
 ## [0.4.0] - 2026-04-23
 
 ### Added
@@ -175,7 +183,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GSD session IDs sanitized against path traversal
 - `execFile` used instead of `exec` to prevent shell injection (except terminal width detection where shell redirect is required with procfs-sourced paths)
 
-[Unreleased]: https://github.com/cativo23/lumira/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/cativo23/lumira/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/cativo23/lumira/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/cativo23/lumira/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/cativo23/lumira/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/cativo23/lumira/compare/v0.3.0...v0.3.1

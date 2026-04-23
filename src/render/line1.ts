@@ -59,24 +59,24 @@ export function renderLine1(ctx: RenderContext, c: Colors): string {
     right.push(c.yellow(truncField(activeTask, 30)));
   }
 
-  // Worktree
-  if (display.worktree && input.raw.worktree?.name) {
-    right.push(c.gray(`${icons.tree} ${truncField(input.raw.worktree.name, 15)}`));
+  // Worktree / Agent / Session name / Style — read from the normalized layer,
+  // which has already run sanitizeTermString() over these untrusted values.
+  // Reading input.raw.* directly would bypass that guard and let malformed
+  // stdin JSON inject terminal control sequences.
+  if (display.worktree && input.worktreeName) {
+    right.push(c.gray(`${icons.tree} ${truncField(input.worktreeName, 15)}`));
   }
 
-  // Agent
-  if (display.agent && input.raw.agent?.name) {
-    right.push(c.gray(`${icons.cubes} ${truncField(input.raw.agent.name, 15)}`));
+  if (display.agent && input.agentName) {
+    right.push(c.gray(`${icons.cubes} ${truncField(input.agentName, 15)}`));
   }
 
-  // Session name
-  if (display.sessionName && input.raw.session_name) {
-    right.push(c.dim(truncField(input.raw.session_name, 20)));
+  if (display.sessionName && input.sessionName) {
+    right.push(c.dim(truncField(input.sessionName, 20)));
   }
 
-  // Style
-  if (display.style && input.raw.output_style?.name) {
-    right.push(c.gray(input.raw.output_style.name));
+  if (display.style && input.outputStyle) {
+    right.push(c.gray(input.outputStyle));
   }
 
   // Version
