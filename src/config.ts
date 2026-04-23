@@ -50,6 +50,14 @@ function mergeConfig(rawIn: Record<string, unknown>): HudConfig {
   if (typeof raw.theme === 'string' && raw.theme.length > 0) result.theme = raw.theme;
   const validIcons = ['nerd', 'emoji', 'none'] as const;
   if (validIcons.includes(raw.icons as never)) result.icons = raw.icons as HudConfig['icons'];
+  if (raw.style === 'classic' || raw.style === 'powerline') result.style = raw.style;
+  if (raw.powerline && typeof raw.powerline === 'object') {
+    const plRaw = raw.powerline as Record<string, unknown>;
+    const validPlStyles = ['arrow', 'flame', 'slant', 'round', 'diamond', 'compatible', 'plain', 'auto'] as const;
+    if (validPlStyles.includes(plRaw.style as never)) {
+      result.powerline = { style: plRaw.style as NonNullable<HudConfig['powerline']>['style'] };
+    }
+  }
   return result;
 }
 
