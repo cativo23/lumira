@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { DEFAULT_CONFIG, DEFAULT_DISPLAY, type HudConfig, type DisplayToggles, type ColorConfig } from './types.js';
 
 let qwenWarningShown = false;
+/** Test-only — resets the process-scoped qwenWarningShown flag. Do not call in production. */
 export function _resetMigrationFlags(): void { qwenWarningShown = false; }
 
 export function loadConfig(configDir: string = join(homedir(), '.config', 'lumira')): HudConfig {
