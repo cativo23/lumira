@@ -78,21 +78,25 @@ npm run lint
 
 ## Deployment
 
-```bash
-# Publish to npm (requires maintainer access)
-npm publish --access public
-
-# Update version before publishing
-npm version patch   # or minor / major
-```
+Releases are fully automated by `.github/workflows/release.yml`. The workflow
+triggers when a `release/vX.Y.Z` branch is merged into `main`, then:
+parses the version from the branch name → creates the git tag → publishes
+the GitHub Release with notes from CHANGELOG.md → runs `npm publish`.
 
 **Release process:**
-1. Branch from `develop` → `release/X.Y.Z`
-2. Bump version, update CHANGELOG.md
-3. PR to `main`, squash merge
-4. `npm publish --access public`
-5. Merge `main` back to `develop`
-6. Tag release: `git tag vX.Y.Z && git push origin --tags`
+1. Branch from `develop` → `release/vX.Y.Z`
+2. Bump `package.json` version and move the `[Unreleased]` changelog entries
+   into a new `[X.Y.Z] - YYYY-MM-DD` section. Update the compare links.
+3. Open PR against `main` and use `--merge` (not squash — preserves branch
+   name for workflow detection).
+4. CI takes over: tag + GitHub Release + npm publish happen automatically.
+5. **Post-release: merge `main` back into `develop`.** This is mandatory —
+   without it, `develop` keeps the old version and stale changelog, and the
+   *next* release branch will conflict on every file touched since.
+   ```bash
+   git checkout develop && git pull
+   git merge origin/main --no-edit && git push
+   ```
 
 ## Guardrails
 
