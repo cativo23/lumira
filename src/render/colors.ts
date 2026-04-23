@@ -67,7 +67,10 @@ export function createColors(mode: ColorMode, theme?: import('../themes.js').The
 }
 
 export function stripAnsi(str: string): string {
-  return str.replace(/\x1b\[\??[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]/g, '');
+  // OSC sequences terminate with either BEL (\x07) or ST (\x1b\\). OSC 8
+  // hyperlinks use ST, so both terminators must be matched — otherwise the
+  // URL and the wrapping markers leak into displayWidth() calculations.
+  return str.replace(/\x1b\[\??[0-9;]*[a-zA-Z]|\x1b\][\s\S]*?(?:\x07|\x1b\\)|\x1b[()][AB012]/g, '');
 }
 
 export function detectColorMode(): ColorMode {

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **OSC 8 hyperlinks** — the directory (line 1) is now a clickable `file://` link that opens the folder in the OS file manager, and the version tag links to the matching Claude Code npm release page. Modern terminals (iTerm2, WezTerm, Kitty, Alacritty, VS Code, tmux ≥3.4 with passthrough) render them as hyperlinks; terminals without support show plain text. Auto-disabled in Apple_Terminal (which leaks escape markers as text) and `TERM=dumb`. Opt out with `NO_HYPERLINKS=1`; force on with `FORCE_HYPERLINK=1`.
+
+### Fixed
+- **`stripAnsi` now handles the ST (`ESC \`) OSC terminator**, not just BEL. Required so OSC 8 sequences don't leak into `displayWidth()` and throw off terminal-width fitting.
+
 ## [0.5.0] - 2026-04-23
 
 ### Added

@@ -1,6 +1,8 @@
 import { basename } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { fitSegments, truncField } from './text.js';
 import { getModelName, formatGitChanges, SEP } from './shared.js';
+import { hyperlink } from './hyperlink.js';
 import type { Colors } from './colors.js';
 import type { RenderContext, TranscriptData } from '../types.js';
 
@@ -40,7 +42,11 @@ export function renderLine1(ctx: RenderContext, c: Colors): string {
     if (cwd) {
       const dirName = basename(cwd) || cwd;
       const dirLen = cols < 80 ? 12 : cols < 120 ? 20 : 30;
-      left.push(c.brightBlue(`${icons.folder} ${truncField(dirName, dirLen)}`));
+      const label = c.brightBlue(`${icons.folder} ${truncField(dirName, dirLen)}`);
+      // Wrap with OSC 8 so terminals that support it turn the directory into a
+      // clickable file:// link. pathToFileURL handles percent-encoding of
+      // spaces and non-ASCII chars correctly.
+      left.push(hyperlink(pathToFileURL(cwd).href, label));
     }
   }
 
@@ -79,9 +85,12 @@ export function renderLine1(ctx: RenderContext, c: Colors): string {
     right.push(c.gray(input.outputStyle));
   }
 
-  // Version
+  // Version — link to the Claude Code npm page for quick changelog lookup.
   if (display.version && input.version) {
-    right.push(c.dim(`v${input.version}`));
+    right.push(hyperlink(
+      `https://www.npmjs.com/package/@anthropic-ai/claude-code/v/${encodeURIComponent(input.version)}`,
+      c.dim(`v${input.version}`),
+    ));
   }
 
   if (left.length === 0 && right.length === 0) return '';
