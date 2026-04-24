@@ -5,6 +5,8 @@ import { renderLine3 } from './line3.js';
 import { renderLine4 } from './line4.js';
 import { renderMinimal } from './minimal.js';
 import { renderPowerlineLine1 } from './powerline-line1.js';
+import { renderPowerlineLine2 } from './powerline-line2.js';
+import { renderPowerlineLine3 } from './powerline-line3.js';
 import { resolveTheme } from '../themes.js';
 import type { RenderContext } from '../types.js';
 
@@ -19,13 +21,13 @@ export function render(ctx: RenderContext): string {
   }
 
   // Powerline mode requires RGB bg escapes; named-ANSI terminals can't
-  // represent arbitrary backgrounds faithfully, so fall back to classic line1.
+  // represent arbitrary backgrounds faithfully, so fall back to classic renderers.
   const wantsPowerline = ctx.config.style === 'powerline' && colorMode !== 'named';
 
   const lines: string[] = [];
   lines.push(wantsPowerline ? renderPowerlineLine1(ctx, colorMode, theme) : renderLine1(ctx, c));
-  lines.push(renderLine2(ctx, c));
-  const l3 = renderLine3(ctx, c);
+  lines.push(wantsPowerline ? renderPowerlineLine2(ctx, colorMode, theme, c) : renderLine2(ctx, c));
+  const l3 = wantsPowerline ? renderPowerlineLine3(ctx, colorMode, theme) : renderLine3(ctx, c);
   if (l3) lines.push(l3);
   if (ctx.config.gsd) { const l4 = renderLine4(ctx, c); if (l4) lines.push(l4); }
   return lines.filter(Boolean).join('\n');
