@@ -443,10 +443,11 @@ describe('renderPowerlineLine2', () => {
     });
 
     it('uses 🔥 critical icon when projection < 12h', () => {
-      // 6h elapsed of 7d, 60% used → TTE = 4h → 🔥
-      const ctx = ctxWith7dProjection(60, 6 * 3600);
+      // 1d elapsed of 7d (clears the 10% elapsed floor), 80% used (clears the
+      // usage floor) → TTE = 6h → 🔥
+      const ctx = ctxWith7dProjection(80, 86400);
       const out = stripAnsi(renderPowerlineLine2(ctx, 'truecolor', null, c));
-      expect(out).toContain('🔥 ~4h');
+      expect(out).toContain('🔥 ~6h');
     });
 
     it('hides projection when display.quotaProjection toggle is off', () => {
@@ -517,12 +518,21 @@ describe('renderPowerlineLine2', () => {
     // surface — as a dedicated powerline segment.
 
     it.each([
-      { label: '⚠ warning tier renders standalone when below 50%', usedPct: 20, elapsedSec: 86400, expectedWarning: '⚠ ~4d' },
-      { label: '🔥 critical tier renders standalone when below 50%', usedPct: 40, elapsedSec: 10800, expectedWarning: '🔥 ~4h' },
-    ])('$label', ({ usedPct, elapsedSec, expectedWarning }) => {
+      // 1d elapsed of 7d (clears the 10% elapsed floor), 25% used (clears the
+      // usage floor, still < 50% badge gate) → TTE = 3d, ⚠ tier.
+      { label: '⚠ warning tier renders standalone when below 50%', usedPct: 25, elapsedSec: 86400, expectedWarning: '⚠ ~3d', badgeVisible: false },
+      // Note: a standalone 🔥 (badge hidden, < 50% used) is no longer reachable —
+      // clearing the 10% elapsed floor forces usedPct > ~58% for TTE < 12h, which
+      // means the badge is always visible by the time the alarm is critical.
+      { label: '🔥 critical tier renders red (badge now visible — no longer reachable standalone)', usedPct: 70, elapsedSec: 64800, expectedWarning: '🔥 ~7h', badgeVisible: true },
+    ])('$label', ({ usedPct, elapsedSec, expectedWarning, badgeVisible }) => {
       const ctx = ctxWith7dProjection(usedPct, elapsedSec);
       const out = stripAnsi(renderPowerlineLine2(ctx, 'truecolor', null, c));
-      expect(out).not.toContain(`${usedPct}%(7d)`);
+      if (badgeVisible) {
+        expect(out).toContain(`${usedPct}%(7d)`);
+      } else {
+        expect(out).not.toContain(`${usedPct}%(7d)`);
+      }
       expect(out).toContain(expectedWarning);
     });
 
@@ -571,72 +581,51 @@ describe('renderPowerlineLine2', () => {
     });
 
     it('attached projection in 7d segment carries inline red ANSI wrap (🔥 tier)', () => {
-      // 6h elapsed of 7d, 60% used → TTE 4h → 🔥. Badge visible at >=50%.
+      // 1d elapsed of 7d (clears the 10% elapsed floor), 80% used → TTE 6h → 🔥. Badge visible at >=50%.
       // Note: createColors keeps `red` in named mode even when overall mode is
       // truecolor (colors.ts:53 spread leaves red/blinkRed at \x1b[31m). The
       // assertion tracks the actual emitted escape, not the theoretical
       // truecolor red.
-      const ctx = ctxWith7dProjection(60, 6 * 3600);
+      const ctx = ctxWith7dProjection(80, 86400);
       const raw = renderPowerlineLine2(ctx, 'truecolor', null, c);
-      expect(raw).toContain('\x1b[31m🔥 ~4h\x1b[0m');
+      expect(raw).toContain('\x1b[31m🔥 ~6h\x1b[0m');
     });
 
-    it('standalone 🔥 emits BRANCH_DIRTY_BG; standalone ⚠ emits TASK_BG', () => {
+    it('standalone ⚠ emits TASK_BG', () => {
       // Default truecolor palette values (theme=null path, see themes.ts).
-      const BRANCH_DIRTY_BG = '\x1b[48;2;160;40;40m';
       const TASK_BG = '\x1b[48;2;128;96;24m';
 
-      // 3h elapsed of 7d, 40% used → TTE 4.5h → 🔥 ~4h standalone (<50% badge hidden).
-      // BRANCH_DIRTY_BG is unique to the standalone 🔥 in this context (no
-      // rate-limit segment ≥85%, no cacheMetrics <40%), so the assertion is
-      // strict without further toggle gating.
-      const critCtx = ctxWith7dProjection(40, 10800);
-      const critRaw = renderPowerlineLine2(critCtx, 'truecolor', null, c);
-      expect(critRaw).toContain('🔥 ~4h');
-      expect(critRaw).toContain(BRANCH_DIRTY_BG);
+      // Note: a standalone 🔥 (BRANCH_DIRTY_BG, badge hidden below 50%) is no
+      // longer reachable now that computeQuotaProjection requires the 10%
+      // elapsed floor — clearing it forces usedPct > ~58% for TTE < 12h, so
+      // the badge is always visible (attached, not standalone) by the time
+      // the alarm is critical. See the equivalent inline-ANSI test above for
+      // the attached-badge 🔥 case.
 
-      // 1d elapsed of 7d, 20% used → TTE 4d → ⚠ ~4d standalone (<50% badge hidden).
+      // 1d elapsed of 7d (clears the 10% elapsed floor), 25% used (clears the
+      // usage floor, still < 50% badge gate) → TTE 3d → ⚠ ~3d standalone.
       // `cost: false` disables the cost segment (which also emits TASK_BG) so
       // the assertion locks the standalone ⚠ segment's bg specifically. Without
       // this gate the test would pass even if the standalone ⚠ used a
       // different bg.
-      const warnCtx = ctxWith7dProjection(20, 86400, { cost: false });
+      const warnCtx = ctxWith7dProjection(25, 86400, { cost: false });
       const warnRaw = renderPowerlineLine2(warnCtx, 'truecolor', null, c);
-      expect(warnRaw).toContain('⚠ ~4d');
+      expect(warnRaw).toContain('⚠ ~3d');
       expect(warnRaw).toContain(TASK_BG);
     });
 
-    it('standalone 🔥 outlives 5h critical under narrow-cols eviction', () => {
-      // Concurrence pattern the headline scenario must protect: heavy short-
-      // burst usage (5h critical, priority 85) AND silent weekly trajectory
-      // off-rails (7d sub-50% projection 🔥). At cols=45 only one of the two
-      // fits; whichever has lower priority is dropped.
-      //
-      // Reasoning behind 🔥 winning: 5h critical has redundant time-to-exhaust
-      // signal via paceDelta. The standalone 🔥 has no other carrier — if it
-      // evicts, the user sees the immediate fire but loses the warning about
-      // weekly trajectory. The more-actionable signal must win the contest.
-      //
-      // This test fails with standalone 🔥 priority <= 85; passes when > 85.
-      const pinnedNow = 1_700_000_000_000;
-      vi.useFakeTimers({ now: pinnedNow });
-      const nowSec = pinnedNow / 1000;
-      const fiveHourReset = nowSec + 600;
-      const sevenDayReset = nowSec + (7 * 24 * 3600 - 10800);
-      const rawInput = {
-        model: 'Claude Sonnet 4.6',
-        session_id: 'test',
-        context_window: { used_percentage: 42, remaining_percentage: 58, total_input_tokens: 12000, total_output_tokens: 1800 },
-        cost: { total_cost_usd: 0.42, total_duration_ms: 185000 },
-        rate_limits: {
-          five_hour: { used_percentage: 90, resets_at: fiveHourReset },
-          seven_day: { used_percentage: 40, resets_at: sevenDayReset },
-        },
-      };
-      const ctx = makeCtx({ input: normalize(rawInput), cols: 45 });
-      const out = stripAnsi(renderPowerlineLine2(ctx, 'truecolor', null, c));
-      expect(out).toContain('🔥 ~4h');
-    });
+    // Priority 86 (standalone 🔥 > 5h critical's 85) is dead code as of the
+    // false-positive guards in computeQuotaProjection: a standalone 🔥 (badge
+    // hidden below 50%) now requires usedPct > ~58% to hit TTE < 12h, which is
+    // a contradiction — the badge would already be visible. The branch is left
+    // in place (not deleted) in case a future rolling-window burn estimate
+    // (see the burn-rate design discussion) makes a genuine sub-50%-but-urgent
+    // trajectory reachable again; if that lands, restore a real version of this
+    // test. Until then there is no live input that exercises priority 86, so it
+    // can't be asserted here without hand-constructing a QuotaProjection object
+    // and bypassing computeQuotaProjection entirely, which would test the eviction
+    // math rather than a real scenario.
+    it.skip('standalone 🔥 outlives 5h critical under narrow-cols eviction (unreachable since the false-positive guards landed — see comment above)', () => {});
   });
 
   describe('apiLatency widget', () => {

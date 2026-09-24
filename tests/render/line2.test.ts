@@ -642,13 +642,14 @@ describe('renderLine2', () => {
       const pinnedNow = 1_700_000_000_000;
       vi.useFakeTimers({ now: pinnedNow });
       const nowSec = pinnedNow / 1000;
-      // 6h elapsed of 7d, 60% used → TTE = 4h. Remaining ≈ 6.75d. willExhaustBefore=true. 4h < 12h → 🔥
-      const resetsAt = nowSec + (7 * 24 * 3600 - 6 * 3600);
+      // 1d elapsed of 7d (clears the 10% elapsed-fraction floor), 80% used
+      // (clears the usage floor) → TTE = 6h. Remaining ≈ 6d. willExhaustBefore=true. 6h < 12h → 🔥
+      const resetsAt = nowSec + (7 * 24 * 3600 - 86400);
       const inputOverride = {
-        rate_limits: { seven_day: { used_percentage: 60, resets_at: resetsAt } },
+        rate_limits: { seven_day: { used_percentage: 80, resets_at: resetsAt } },
       };
       const out = stripAnsi(renderLine2(makeCtx({}, inputOverride), c));
-      expect(out).toContain('🔥 ~4h');
+      expect(out).toContain('🔥 ~6h');
     });
 
     it('coexists with countdown when >= 70% — both signals appear', () => {
@@ -757,11 +758,15 @@ describe('renderLine2', () => {
     // behaviour.
 
     it.each([
-      // 1d elapsed of 7d, 20% used → TTE = 4d, willExhaust=true, ⚠ tier (≥12h)
-      { label: '⚠ warning tier renders yellow standalone when below 50%', usedPct: 20, elapsedSec: 86400, expectedWarning: '⚠ ~4d' },
-      // 3h elapsed of 7d, 40% used → TTE = 4.5h, 🔥 tier (sub-12h), badge hidden
-      { label: '🔥 critical tier renders red standalone when below 50%', usedPct: 40, elapsedSec: 10800, expectedWarning: '🔥 ~4h' },
-    ])('$label', ({ usedPct, elapsedSec, expectedWarning }) => {
+      // 1d elapsed of 7d (clears the 10% elapsed floor), 25% used (clears the
+      // usage floor, still < 50% badge gate) → TTE = 3d, ⚠ tier (≥12h)
+      { label: '⚠ warning tier renders yellow standalone when below 50%', usedPct: 25, elapsedSec: 86400, expectedWarning: '⚠ ~3d', badgeVisible: false },
+      // Note: a standalone 🔥 (badge hidden, < 50% used) is no longer reachable —
+      // clearing the 10% elapsed floor forces usedPct > ~58% for TTE < 12h, which
+      // means the badge is always visible by the time the alarm is critical.
+      // 18h elapsed, 70% used → TTE ≈ 7.7h, 🔥 tier, badge visible (attached, not standalone).
+      { label: '🔥 critical tier renders red (badge now visible — no longer reachable standalone)', usedPct: 70, elapsedSec: 64800, expectedWarning: '🔥 ~7h', badgeVisible: true },
+    ])('$label', ({ usedPct, elapsedSec, expectedWarning, badgeVisible }) => {
       const pinnedNow = 1_700_000_000_000;
       vi.useFakeTimers({ now: pinnedNow });
       const nowSec = pinnedNow / 1000;
@@ -770,9 +775,11 @@ describe('renderLine2', () => {
         rate_limits: { seven_day: { used_percentage: usedPct, resets_at: resetsAt } },
       };
       const out = stripAnsi(renderLine2(makeCtx({}, inputOverride), c));
-      // Badge is hidden (below 50% gate)
-      expect(out).not.toContain(`${usedPct}%(7d)`);
-      // Warning still renders standalone
+      if (badgeVisible) {
+        expect(out).toContain(`${usedPct}%(7d)`);
+      } else {
+        expect(out).not.toContain(`${usedPct}%(7d)`);
+      }
       expect(out).toContain(expectedWarning);
     });
 
