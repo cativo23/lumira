@@ -123,6 +123,66 @@ describe('computeQuotaProjection', () => {
     });
   });
 
+  describe('false-positive guards (margin, usage floor, elapsed floor)', () => {
+    it('reproduces the real-world false alarm: 11% used after an 11h burst right after reset must NOT warn', () => {
+      // 11h elapsed of 7d (6.5% of window), 11% used.
+      // Old behaviour: delta = 11 - 6.5 = +4.5 → willExhaustBefore=true → "~29h" alarm.
+      // New behaviour: fails the elapsed-fraction floor, the usage floor, and the margin.
+      const elapsedSec = 11 * 3600;
+      const resetsAt = NOW + (WINDOW_7D - elapsedSec);
+      const result = computeQuotaProjection(11, resetsAt, WINDOW_7D, NOW, 3600);
+      expect(result).not.toBeNull();
+      expect(result!.willExhaustBefore).toBe(false);
+    });
+
+    it('usage floor: suppresses warning below MIN_USED_PCT_FOR_WARNING even with a large delta', () => {
+      // 1% elapsed of window, 24% used → delta = +23 (huge), but usedPct(24) is below the floor.
+      const elapsedSec = WINDOW_7D * 0.01;
+      const resetsAt = NOW + (WINDOW_7D - elapsedSec);
+      const result = computeQuotaProjection(24, resetsAt, WINDOW_7D, NOW, 3600);
+      expect(result).not.toBeNull();
+      expect(result!.willExhaustBefore).toBe(false);
+    });
+
+    it('elapsed-fraction floor: suppresses warning before ~10% of the window has passed', () => {
+      // 5% elapsed of window (well above minElapsedSec), 30% used → delta = +25, usedPct above floor,
+      // but elapsedFraction (0.05) is below the 0.10 floor.
+      const elapsedSec = WINDOW_7D * 0.05;
+      const resetsAt = NOW + (WINDOW_7D - elapsedSec);
+      const result = computeQuotaProjection(30, resetsAt, WINDOW_7D, NOW, 3600);
+      expect(result).not.toBeNull();
+      expect(result!.willExhaustBefore).toBe(false);
+    });
+
+    it('margin: suppresses warning when usage is only marginally ahead of a linear pace', () => {
+      // 20% elapsed, 23% used → delta = +3, below the 5-point margin.
+      const elapsedSec = WINDOW_7D * 0.2;
+      const resetsAt = NOW + (WINDOW_7D - elapsedSec);
+      const result = computeQuotaProjection(23, resetsAt, WINDOW_7D, NOW, 3600);
+      expect(result).not.toBeNull();
+      expect(result!.willExhaustBefore).toBe(false);
+    });
+
+    it('genuine sustained overburn still warns once all three guards are cleared', () => {
+      // 3 days elapsed (42.9% of window, well past floors), 60% used (well above floor) → delta = +17.1 (above margin).
+      const elapsedSec = 3 * 24 * 3600;
+      const resetsAt = NOW + (WINDOW_7D - elapsedSec);
+      const result = computeQuotaProjection(60, resetsAt, WINDOW_7D, NOW, 3600);
+      expect(result).not.toBeNull();
+      expect(result!.willExhaustBefore).toBe(true);
+    });
+
+    it('does not regress the 5h-window boundary case (all guards satisfied exactly at their thresholds)', () => {
+      // elapsedFraction=0.20, usedPct=25, delta=5 — exactly at each threshold, must still pass (>=, not >).
+      const elapsedSec = 3600;
+      const resetsAt = NOW + (WINDOW_5H - elapsedSec);
+      const result = computeQuotaProjection(25, resetsAt, WINDOW_5H, NOW);
+      expect(result).not.toBeNull();
+      expect(result!.timeToExhaustSec).toBeCloseTo(10800, 0);
+      expect(result!.willExhaustBefore).toBe(true);
+    });
+  });
+
   describe('timeToExhaustSec computation', () => {
     it('25% elapsed at 50% used → burn 2x → TTE = elapsed (since 50% remaining at burn rate that did 50% in elapsed)', () => {
       // elapsedSec = WINDOW_7D / 4 = 151200s; 50% used

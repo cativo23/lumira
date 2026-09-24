@@ -3,6 +3,16 @@ import { computeBurnExtrapolation } from './burn-math.js';
 
 const log = debug('quota-projection');
 
+// `willExhaustBefore` alone is a zero-margin trigger: algebraically it's just
+// `usedPct > elapsedPct`, i.e. "a hair above a perfectly linear pace". Right after
+// a window reset, elapsedPct starts near 0, so any early burst of usage clears it —
+// an 11h heavy session burning 11% of a 7-day quota reads as "will exhaust in ~29h"
+// even though the session already ended. These floors require actual evidence
+// (real margin, meaningful usage, meaningful time passed) before surfacing a warning.
+const MIN_USED_PCT_FOR_WARNING = 25;
+const MIN_ELAPSED_FRACTION_FOR_WARNING = 0.1;
+const MIN_DELTA_MARGIN_PCT = 5;
+
 export interface QuotaProjection {
   /** Seconds from `now` until the quota is projected to hit 100% at current burn rate. */
   timeToExhaustSec: number;
@@ -47,6 +57,13 @@ export function computeQuotaProjection(
 
   const burn = computeBurnExtrapolation(usedPct, elapsedSec, remainingSec);
 
+  const elapsedFraction = elapsedSec / windowSec;
+  const hasEnoughSignal =
+    usedPct >= MIN_USED_PCT_FOR_WARNING &&
+    elapsedFraction >= MIN_ELAPSED_FRACTION_FOR_WARNING &&
+    burn.delta >= MIN_DELTA_MARGIN_PCT;
+  const willExhaustBefore = burn.willExhaustBefore && hasEnoughSignal;
+
   if (log.enabled) {
     log({
       usedPct,
@@ -54,11 +71,14 @@ export function computeQuotaProjection(
       remainingSec: Math.round(remainingSec),
       burnRate: burn.burnRateSec,
       timeToExhaustSec: Math.round(burn.timeToExhaustSec),
-      willExhaustBefore: burn.willExhaustBefore,
+      delta: burn.delta,
+      elapsedFraction,
+      hasEnoughSignal,
+      willExhaustBefore,
     });
   }
 
-  return { timeToExhaustSec: burn.timeToExhaustSec, willExhaustBefore: burn.willExhaustBefore };
+  return { timeToExhaustSec: burn.timeToExhaustSec, willExhaustBefore };
 }
 
 /**
