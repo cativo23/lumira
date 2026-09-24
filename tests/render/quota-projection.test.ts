@@ -155,10 +155,13 @@ describe('computeQuotaProjection', () => {
     });
 
     it('margin: suppresses warning when usage is only marginally ahead of a linear pace', () => {
-      // 20% elapsed, 23% used → delta = +3, below the 5-point margin.
-      const elapsedSec = WINDOW_7D * 0.2;
+      // 30% elapsed (clears the elapsed floor), 32% used (clears the usage floor) →
+      // delta = +2, below the 5-point margin. Isolates the margin guard: with either
+      // other floor as the only gate this case would already pass, so a broken/removed
+      // margin check would flip this result to true.
+      const elapsedSec = WINDOW_7D * 0.3;
       const resetsAt = NOW + (WINDOW_7D - elapsedSec);
-      const result = computeQuotaProjection(23, resetsAt, WINDOW_7D, NOW, 3600);
+      const result = computeQuotaProjection(32, resetsAt, WINDOW_7D, NOW, 3600);
       expect(result).not.toBeNull();
       expect(result!.willExhaustBefore).toBe(false);
     });
