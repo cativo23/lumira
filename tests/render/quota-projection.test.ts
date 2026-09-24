@@ -175,7 +175,11 @@ describe('computeQuotaProjection', () => {
       expect(result!.willExhaustBefore).toBe(true);
     });
 
-    it('does not regress the 5h-window boundary case (all guards satisfied exactly at their thresholds)', () => {
+    it('does not regress the module at 5h-scale magnitudes (all guards satisfied exactly at their thresholds)', () => {
+      // computeQuotaProjection is window-agnostic and only invoked for the 7d path in
+      // production (pace.ts owns the actual 5h renderer and never calls this function) —
+      // this exercises the boundary at 5h-scale magnitudes to lock in inclusive (>=)
+      // semantics on all three guards, not to protect the live 5h path.
       // elapsedFraction=0.20, usedPct=25, delta=5 — exactly at each threshold, must still pass (>=, not >).
       const elapsedSec = 3600;
       const resetsAt = NOW + (WINDOW_5H - elapsedSec);
