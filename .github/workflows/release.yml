@@ -151,7 +151,6 @@ jobs:
 
       - name: Publish to npm
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           RELEASE_TAG: ${{ needs.release.outputs.tag }}
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
