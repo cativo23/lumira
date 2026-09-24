@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.1] - 2026-09-23
+
+### Fixed
+
+- **7-day quota exhaustion warning no longer fires on a false positive right after the weekly reset.** `willExhaustBefore` was a zero-margin check (`usedPct > elapsedPct`) against a purely linear pace — right after reset, `elapsedPct` starts near 0, so a single heavy session (e.g. 11h burning 11% of the 7d quota) surfaced a "~29h to exhaustion" alarm even after the session had already ended. Now requires a 5-point margin over linear pace, a 25% usage floor, and at least 10% of the window elapsed before the warning can fire — early bursts no longer get extrapolated across the whole week.
+
 ## [1.18.0] - 2026-08-25
 
 ### Added
