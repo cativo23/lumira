@@ -8,6 +8,7 @@ import { getConfigHealth } from '../parsers/config-health.js';
 import { computePaceDelta, formatPaceDelta } from './pace.js';
 import { computeQuotaProjection, formatProjectionWarning } from './quota-projection.js';
 import { hyperlink } from './hyperlink.js';
+import { getPromptCacheBadge, isLiveRefresh, PROMPT_CACHE_COLORS } from './prompt-cache.js';
 const SEVEN_DAY_WINDOW_SEC = 7 * 24 * 3600;
 const SEVEN_DAY_MIN_ELAPSED_SEC = 3600; // 1h floor — see quota-projection.ts
 export function formatCountdown(resetsAt) {
@@ -81,6 +82,14 @@ export function renderLine2(ctx, c) {
     if (display.cacheMetrics && input.cacheHitRate != null && input.cacheHitRate < 90) {
         const cacheColorFn = c[getCacheHitColor(input.cacheHitRate)];
         leftParts.push(cacheColorFn(`${input.cacheHitRate}%${icons.lightning}`));
+    }
+    if (display.promptCache) {
+        const badge = getPromptCacheBadge(input.promptCache, {
+            icon: icons.cacheCold,
+            liveCountdown: isLiveRefresh(ctx.config.refreshInterval),
+        });
+        if (badge)
+            leftParts.push(c[PROMPT_CACHE_COLORS[badge.kind]](badge.text));
     }
     // Cost + burn rate (Claude only — Qwen doesn't send cost data)
     if (display.cost && input.cost != null) {

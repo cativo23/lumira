@@ -7,6 +7,7 @@ import { computeApiLatency, formatApiLatency } from './api-latency.js';
 import { getConfigHealth } from '../parsers/config-health.js';
 import { computePaceDelta, formatPaceDelta } from './pace.js';
 import { computeQuotaProjection, formatProjectionWarning } from './quota-projection.js';
+import { getPromptCacheBadge, isLiveRefresh } from './prompt-cache.js';
 const SEVEN_DAY_WINDOW_SEC = 7 * 24 * 3600;
 const SEVEN_DAY_MIN_ELAPSED_SEC = 3600; // 1h floor — see quota-projection.ts
 import { derivePowerlinePalette, DEFAULT_POWERLINE_PALETTE, } from '../themes.js';
@@ -19,6 +20,13 @@ function getCacheHitBg(rate, palette) {
         case 'mild': return palette.versionBg;
         case 'moderate': return palette.taskBg;
         case 'critical': return palette.branchDirtyBg;
+    }
+}
+function getPromptCacheBg(kind, palette) {
+    switch (kind) {
+        case 'miss': return palette.taskBg;
+        case 'cold': return palette.dirBg;
+        case 'expiring': return palette.versionBg;
     }
 }
 // Maps PR review state to a powerline bg slot (urgency via background, not text color).
@@ -216,6 +224,14 @@ function buildSegments(ctx, palette, c) {
     if (display.cacheMetrics && input.cacheHitRate != null && input.cacheHitRate < 90) {
         const bg = getCacheHitBg(input.cacheHitRate, palette);
         segments.push({ text: `${input.cacheHitRate}%${icons.lightning}`, bg, fg: palette.fg, priority: 50 });
+    }
+    if (display.promptCache) {
+        const badge = getPromptCacheBadge(input.promptCache, {
+            icon: icons.cacheCold,
+            liveCountdown: isLiveRefresh(ctx.config.refreshInterval),
+        });
+        if (badge)
+            segments.push({ text: badge.text, bg: getPromptCacheBg(badge.kind, palette), fg: palette.fg, priority: 50 });
     }
     // MCP servers
     if (display.mcp && mcp) {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ICONS, NERD_ICONS, EMOJI_ICONS, NO_ICONS, resolveIcons } from '../../src/render/icons.js';
+import { displayWidth } from '../../src/render/text.js';
 
 describe('ICONS (legacy export)', () => {
   it('is the same as NERD_ICONS', () => {
@@ -39,6 +40,22 @@ describe('NO_ICONS', () => {
     expect(NO_ICONS.fire).toBe('!');
     expect(NO_ICONS.skull).toBe('!!');
     expect(NO_ICONS.warning).toBe('!');
+  });
+});
+
+describe('IconSet.cacheCold', () => {
+  it('uses nf-md-snowflake (U+F0717) in nerd mode, measured as one cell', () => {
+    expect(NERD_ICONS.cacheCold).toBe('\u{F0717}');
+    expect(displayWidth(NERD_ICONS.cacheCold)).toBe(1);
+  });
+
+  it('uses an unambiguously wide emoji so displayWidth matches the terminal', () => {
+    expect(EMOJI_ICONS.cacheCold).toBe('\u{1F9CA}');
+    expect(displayWidth(EMOJI_ICONS.cacheCold)).toBe(2);
+  });
+
+  it('falls back to a word in no-icon mode so the badge stays self-describing', () => {
+    expect(NO_ICONS.cacheCold).toBe('cache');
   });
 });
 

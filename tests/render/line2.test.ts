@@ -340,6 +340,63 @@ describe('renderLine2', () => {
     expect(out).not.toContain(`${EMOJI_ICONS.lightning}fast`);
   });
 
+  describe('prompt cache badge', () => {
+    const NOW = 1792005600;
+    const warmPc = {
+      warm: true, caching_observed: true, ttl: '1h', expires_at: NOW + 3000,
+      misses: 0, miss_recache_tokens: 0, last_miss_at: null, last_miss_cause: null,
+      recache_tokens_if_cold: 102957,
+    };
+    const withRefresh = { ...DEFAULT_CONFIG, refreshInterval: 5, display: { ...DEFAULT_DISPLAY } };
+
+    function render(pc: object, overrides: Partial<RenderContext> = {}): string {
+      vi.useFakeTimers({ now: NOW * 1000 });
+      return renderLine2(makeCtx({ icons: EMOJI_ICONS, ...overrides }, { prompt_cache: pc } as Partial<ClaudeCodeInput>), c);
+    }
+
+    it('is hidden while the cache is warm with plenty of TTL left', () => {
+      expect(stripAnsi(render(warmPc))).not.toContain(EMOJI_ICONS.cacheCold);
+    });
+
+    it('shows a yellow minute countdown when refreshInterval keeps the line live', () => {
+      const out = render({ ...warmPc, expires_at: NOW + 8 * 60 }, { config: withRefresh });
+      expect(out).toContain(c.yellow(`${EMOJI_ICONS.cacheCold} 8m · 103k`));
+    });
+
+    it('falls back to the absolute clock time without refreshInterval', () => {
+      const expiresAt = NOW + 8 * 60;
+      const d = new Date(expiresAt * 1000);
+      const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      expect(stripAnsi(render({ ...warmPc, expires_at: expiresAt }))).toContain(`${EMOJI_ICONS.cacheCold} ${hhmm} · 103k`);
+    });
+
+    it('treats a refreshInterval slower than a minute as not live', () => {
+      const slow = { ...withRefresh, refreshInterval: 120 };
+      expect(stripAnsi(render({ ...warmPc, expires_at: NOW + 8 * 60 }, { config: slow }))).not.toContain('8m');
+    });
+
+    it('shows a cyan cold badge once the TTL lapsed', () => {
+      expect(render({ ...warmPc, warm: false })).toContain(c.cyan(`${EMOJI_ICONS.cacheCold} cold · 103k`));
+    });
+
+    it('shows an orange miss badge right after a miss', () => {
+      const pc = {
+        ...warmPc, misses: 2, miss_recache_tokens: 202640, last_miss_at: NOW - 30,
+        last_miss_cause: { causes: ['model_changed'] },
+      };
+      expect(render(pc)).toContain(c.orange('miss ×2 · 203k · model changed'));
+    });
+
+    it('is hidden when display.promptCache is false', () => {
+      const off = { ...DEFAULT_CONFIG, display: { ...DEFAULT_DISPLAY, promptCache: false } };
+      expect(stripAnsi(render({ ...warmPc, warm: false }, { config: off }))).not.toContain('cold');
+    });
+
+    it('is hidden when prompt_cache is absent', () => {
+      expect(stripAnsi(renderLine2(makeCtx({ icons: EMOJI_ICONS }), c))).not.toContain(EMOJI_ICONS.cacheCold);
+    });
+  });
+
   it('hides thinking icon when thinking is not enabled', () => {
     const ctx = makeCtx({ icons: EMOJI_ICONS });
     const out = stripAnsi(renderLine2(ctx, c));

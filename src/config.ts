@@ -432,6 +432,7 @@ const PRESET_DEFS: Record<NonNullable<HudConfig['preset']>, PresetDef> = {
       repo: true,
       thinking: true,
       fastMode: true,
+      promptCache: true,
       burnRate: false,
       duration: false,
       tokenSpeed: false,
@@ -482,6 +483,7 @@ const PRESET_DEFS: Record<NonNullable<HudConfig['preset']>, PresetDef> = {
       repo: false,
       thinking: false,
       fastMode: false,
+      promptCache: false,
     },
   },
 };

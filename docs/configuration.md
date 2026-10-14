@@ -22,6 +22,7 @@ Create `~/.config/lumira/config.json`:
     "contextTokens": true,
     "tokens": true,
     "cacheMetrics": true,
+    "promptCache": true,
     "cost": true,
     "burnRate": true,
     "duration": true,
