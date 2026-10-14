@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Prompt cache badge.** Reads the `prompt_cache` object CC ≥ 2.1.251 sends to the statusline and surfaces it only when there's something to act on: `❄ 8m · 103k` when the cache is about to go cold (last 10 minutes of a 1h TTL, last minute of a 5m one), `❄ cold · 103k` once it has, and `miss ×2 · 203k · model changed` for five minutes after a cache miss, unless the cache is already cold or about to be — those take precedence (`❄` stands for the Nerd Font snowflake; emoji mode shows 🧊). The token figure is what the next request re-caches if you let it go cold (`recache_tokens_if_cold`); on a miss it is the session's cumulative re-cache total. The countdown needs a `refreshInterval` of 60s or faster in lumira's own config, transcribed to `settings.json` by `lumira install` — CC only re-renders on events, so without a timer the badge shows the clock time the cache expires (`❄ 14:26 · 103k`) instead of a number that would freeze. Miss causes CC doesn't document yet (e.g. `model_changed`, seen live) are shown as-is. Toggle: `display.promptCache` (on in `full`/`balanced`, off in `minimal`). Independent of `cacheMetrics`, which measures the current turn — both can show after a miss.
+
 ## [1.18.1] - 2026-09-23
 
 ### Fixed

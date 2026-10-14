@@ -161,6 +161,151 @@ describe('normalize', () => {
       expect(normalize(input).fastMode).toBeUndefined();
     });
 
+    describe('promptCache', () => {
+      // Captured live from CC 2.1.294 (spy session 2026-10-14) right after a /model switch.
+      const missModelChanged = {
+        warm: true,
+        caching_observed: true,
+        ttl: '1h',
+        expires_at: 1792009437,
+        requests: 27,
+        misses: 2,
+        expected_rebuilds: 0,
+        hit_ratio: 0.889,
+        cache_write_tokens: 277567,
+        miss_recache_tokens: 202640,
+        last_miss_at: 1792005572,
+        last_miss_cause: { causes: ['model_changed'] },
+        miss_causes: { ttl_expired_1h: 1, model_changed: 1 },
+        recache_tokens_if_cold: 102957,
+      };
+
+      // Captured live after the 1h TTL lapsed with no activity: warm flips false,
+      // expires_at keeps the stale value instead of going null.
+      const cold = {
+        warm: false,
+        caching_observed: true,
+        ttl: '1h',
+        expires_at: 1792001730,
+        requests: 19,
+        misses: 0,
+        expected_rebuilds: 0,
+        hit_ratio: 0.957,
+        cache_write_tokens: 72048,
+        miss_recache_tokens: 0,
+        last_miss_at: null,
+        last_miss_cause: null,
+        miss_causes: {},
+        recache_tokens_if_cold: 98572,
+      };
+
+      it('normalizes a real post-miss payload', () => {
+        const input = { ...claudeInput, prompt_cache: missModelChanged } as ClaudeCodeInput;
+        expect(normalize(input).promptCache).toEqual({
+          warm: true,
+          cachingObserved: true,
+          ttlSec: 3600,
+          expiresAt: 1792009437,
+          misses: 2,
+          missRecacheTokens: 202640,
+          lastMissAt: 1792005572,
+          lastMissCauses: ['model_changed'],
+          recacheIfCold: 102957,
+        });
+      });
+
+      it('normalizes a real cold payload, keeping the stale expires_at', () => {
+        const input = { ...claudeInput, prompt_cache: cold } as ClaudeCodeInput;
+        expect(normalize(input).promptCache).toEqual({
+          warm: false,
+          cachingObserved: true,
+          ttlSec: 3600,
+          expiresAt: 1792001730,
+          misses: 0,
+          missRecacheTokens: 0,
+          lastMissAt: undefined,
+          lastMissCauses: [],
+          recacheIfCold: 98572,
+        });
+      });
+
+      it('maps ttl "5m" to 300 seconds', () => {
+        const input = { ...claudeInput, prompt_cache: { ...cold, ttl: '5m' } } as ClaudeCodeInput;
+        expect(normalize(input).promptCache?.ttlSec).toBe(300);
+      });
+
+      it('drops an unknown ttl value', () => {
+        for (const ttl of ['2h', 'constructor', '__proto__']) {
+          const input = { ...claudeInput, prompt_cache: { ...cold, ttl } } as unknown as ClaudeCodeInput;
+          expect(normalize(input).promptCache?.ttlSec).toBeUndefined();
+        }
+      });
+
+      it('is undefined when prompt_cache is absent', () => {
+        expect(normalize(claudeInput).promptCache).toBeUndefined();
+      });
+
+      it('is undefined when warm or caching_observed is not a boolean', () => {
+        const badWarm = { ...claudeInput, prompt_cache: { ...cold, warm: 'yes' } } as unknown as ClaudeCodeInput;
+        const badObserved = { ...claudeInput, prompt_cache: { ...cold, caching_observed: 1 } } as unknown as ClaudeCodeInput;
+        expect(normalize(badWarm).promptCache).toBeUndefined();
+        expect(normalize(badObserved).promptCache).toBeUndefined();
+      });
+
+      it('drops negative or non-finite numbers', () => {
+        const input = {
+          ...claudeInput,
+          prompt_cache: { ...missModelChanged, expires_at: -5, misses: Number.NaN, miss_recache_tokens: Infinity, last_miss_at: 'x', recache_tokens_if_cold: -1 },
+        } as unknown as ClaudeCodeInput;
+        const pc = normalize(input).promptCache;
+        expect(pc?.expiresAt).toBeUndefined();
+        expect(pc?.misses).toBe(0);
+        expect(pc?.missRecacheTokens).toBe(0);
+        expect(pc?.lastMissAt).toBeUndefined();
+        expect(pc?.recacheIfCold).toBeUndefined();
+      });
+
+      it('sanitizes causes, drops non-strings, and caps count and length', () => {
+        const input = {
+          ...claudeInput,
+          prompt_cache: {
+            ...missModelChanged,
+            last_miss_cause: { causes: ['\x1b[31mtools_changed', 42, 'a'.repeat(50), 'model_changed', 'ttl_expired_5m', ''] },
+          },
+        } as unknown as ClaudeCodeInput;
+        expect(normalize(input).promptCache?.lastMissCauses).toEqual([
+          '[31mtools_changed',
+          'a'.repeat(32),
+          'model_changed',
+        ]);
+      });
+
+      it('caps cause length by characters, never splitting a surrogate pair', () => {
+        const input = {
+          ...claudeInput,
+          prompt_cache: { ...missModelChanged, last_miss_cause: { causes: ['a'.repeat(31) + '🧊🧊'] } },
+        } as unknown as ClaudeCodeInput;
+        expect(normalize(input).promptCache?.lastMissCauses).toEqual(['a'.repeat(31) + '🧊']);
+      });
+
+      it('requires misses to be an integer count', () => {
+        for (const misses of [1.5, 1e21]) {
+          const input = { ...claudeInput, prompt_cache: { ...missModelChanged, misses } } as ClaudeCodeInput;
+          expect(normalize(input).promptCache?.misses).toBe(0);
+        }
+      });
+
+      it('treats a malformed last_miss_cause as no causes', () => {
+        const input = { ...claudeInput, prompt_cache: { ...missModelChanged, last_miss_cause: 'model_changed' } } as unknown as ClaudeCodeInput;
+        expect(normalize(input).promptCache?.lastMissCauses).toEqual([]);
+      });
+
+      it('is undefined for Qwen input', () => {
+        const input = { ...qwenInput, prompt_cache: cold } as unknown as typeof qwenInput;
+        expect(normalize(input).promptCache).toBeUndefined();
+      });
+    });
+
     it('window size is undefined for Claude', () => {
       const result = normalize(claudeInput);
       expect(result.context.windowSize).toBeUndefined();

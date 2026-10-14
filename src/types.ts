@@ -48,6 +48,30 @@ export interface ClaudeCodeInput {
   pr?: { number?: number; url?: string; review_state?: string };
   /** Modern (≥ 2.1.x) — Opus fast-mode active (2.5x output speed, premium pricing). */
   fast_mode?: boolean;
+  /** Modern (≥ 2.1.251) — main-conversation prompt cache stats. Absent until the first API response. */
+  prompt_cache?: RawPromptCache;
+}
+
+/**
+ * Shape verified live on CC 2.1.294. `miss_recache_tokens` and `miss_causes`
+ * are session-cumulative; `last_miss_cause` describes only the latest miss and
+ * its cause names are open-ended (`model_changed` is not in the docs' list).
+ */
+export interface RawPromptCache {
+  warm?: boolean;
+  caching_observed?: boolean;
+  ttl?: string;
+  expires_at?: number | null;
+  requests?: number;
+  misses?: number;
+  expected_rebuilds?: number;
+  hit_ratio?: number | null;
+  cache_write_tokens?: number;
+  miss_recache_tokens?: number;
+  last_miss_at?: number | null;
+  last_miss_cause?: { causes?: unknown[] } | null;
+  miss_causes?: Record<string, number>;
+  recache_tokens_if_cold?: number | null;
 }
 
 export interface RateLimitWindow {
@@ -417,6 +441,7 @@ export interface DisplayToggles {
   repo: boolean;
   thinking: boolean;
   fastMode: boolean;
+  promptCache: boolean;
   /**
    * Percentage at which the context bar turns orange and shows the fire icon. Default 65. Clamped [0,100].
    * Setting this ≤ 50 collapses the yellow zone; the bar jumps green→orange directly at this value.
@@ -518,6 +543,7 @@ export const DEFAULT_DISPLAY: DisplayToggles = {
   repo: true,
   thinking: true,
   fastMode: true,
+  promptCache: true,
   contextWarningThreshold: DEFAULT_CONTEXT_WARNING_THRESHOLD,
   contextCriticalThreshold: DEFAULT_CONTEXT_CRITICAL_THRESHOLD,
 };

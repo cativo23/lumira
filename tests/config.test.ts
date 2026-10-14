@@ -924,4 +924,26 @@ describe('compactionCount display toggle — preset defaults', () => {
   it('fastMode is true when no config file exists (DEFAULT_DISPLAY)', () => {
     expect(loadConfig(join(dir, 'nope')).display.fastMode).toBe(true);
   });
+
+  it('promptCache is ON in balanced preset', () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'config.json'), '{"preset":"balanced"}');
+    expect(loadConfig(dir).display.promptCache).toBe(true);
+  });
+
+  it('promptCache is OFF in minimal preset', () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'config.json'), '{"preset":"minimal"}');
+    expect(loadConfig(dir).display.promptCache).toBe(false);
+  });
+
+  it('promptCache is true when no config file exists (DEFAULT_DISPLAY)', () => {
+    expect(loadConfig(join(dir, 'nope')).display.promptCache).toBe(true);
+  });
+
+  it('promptCache can be turned off explicitly', () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'config.json'), '{"display":{"promptCache":false}}');
+    expect(loadConfig(dir).display.promptCache).toBe(false);
+  });
 });

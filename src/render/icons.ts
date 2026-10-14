@@ -27,6 +27,8 @@ export interface IconSet {
   repo: string;
   /** Extended thinking indicator (CC ≥ 2.1.x thinking widget). */
   thinking: string;
+  /** Prompt cache expiring/cold badge (CC ≥ 2.1.251 prompt_cache). */
+  cacheCold: string;
   /**
    * Battery glyph keyed by usedPercentage. Replaces the bolt prefix on
    * rate-limit segments with a visual fuel gauge so the icon itself signals
@@ -101,6 +103,7 @@ export const NERD_ICONS: IconSet = {
   pr:        '',  // nf-cod-git_pull_request
   repo:      '',  // U+EA62 nf-cod-repo
   thinking:  '󰧑',  // U+F09D1 — clearer "thinking" glyph; nf-md-brain (U+F1824) renders faint in many fonts
+  cacheCold: '\u{F0717}',  // nf-md-snowflake
   battery:   nerdBattery,
 };
 
@@ -128,6 +131,9 @@ export const EMOJI_ICONS: IconSet = {
   pr:        '\u{1F500}',  // 🔀 — twisted rightwards arrows (PR)
   repo:      '\u{1F4E6}',  // 📦 — package (repository)
   thinking:  '\u{1F4AD}',  // 💭 — thought bubble
+  // 🧊 rather than ❄ (U+2744): without VS16 terminals draw ❄ one cell wide
+  // while displayWidth counts the U+2600 block as two, misaligning the line.
+  cacheCold: '\u{1F9CA}',
   battery:   (pct: number) => {
     if (!Number.isFinite(pct) || pct < 0) return '\u{1F50B}'; // 🔋 — no data / invalid input
     if (Math.round(pct) >= 100) return '\u{1F480}';            // 💀 — quota exhausted
@@ -160,6 +166,7 @@ export const NO_ICONS: IconSet = {
   pr:        'PR',
   repo:      '',
   thinking:  'think',
+  cacheCold: 'cache',
   // No-icon mode keeps the legacy bolt fallback (currently empty) so users who
   // opted out of icons see no shape change from this feature.
   battery:   () => '',

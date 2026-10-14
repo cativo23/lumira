@@ -395,6 +395,7 @@ const PRESET_DEFS = {
             repo: true,
             thinking: true,
             fastMode: true,
+            promptCache: true,
             burnRate: false,
             duration: false,
             tokenSpeed: false,
@@ -445,6 +446,7 @@ const PRESET_DEFS = {
             repo: false,
             thinking: false,
             fastMode: false,
+            promptCache: false,
         },
     },
 };

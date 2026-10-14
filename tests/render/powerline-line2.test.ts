@@ -7,6 +7,7 @@ import { normalize } from '../../src/normalize.js';
 import { DEFAULT_CONFIG, DEFAULT_DISPLAY, EMPTY_GIT, EMPTY_TRANSCRIPT } from '../../src/types.js';
 import type { RenderContext } from '../../src/types.js';
 import { EMOJI_ICONS, NO_ICONS } from '../../src/render/icons.js';
+import { DEFAULT_POWERLINE_PALETTE } from '../../src/themes.js';
 
 function makeCtx(overrides: Partial<RenderContext> = {}): RenderContext {
   const rawInput = {
@@ -869,6 +870,86 @@ describe('renderPowerlineLine2', () => {
       const ctx = makeCtx({ icons: EMOJI_ICONS });
       const out = stripAnsi(renderPowerlineLine2(ctx, 'truecolor', null, c));
       expect(out).not.toContain(`${EMOJI_ICONS.lightning}fast`);
+    });
+  });
+
+  describe('prompt cache segment', () => {
+    const NOW = 1792005600;
+    const warmPc = {
+      warm: true, caching_observed: true, ttl: '1h', expires_at: NOW + 3000,
+      misses: 0, miss_recache_tokens: 0, last_miss_at: null, last_miss_cause: null,
+      recache_tokens_if_cold: 102957,
+    };
+
+    function render(pc: object, overrides: Partial<RenderContext> = {}): string {
+      vi.useFakeTimers({ now: NOW * 1000 });
+      const input = normalize({
+        model: 'Claude Sonnet 4.6',
+        session_id: 'test',
+        context_window: { used_percentage: 42, remaining_percentage: 58, total_input_tokens: 12000, total_output_tokens: 1800 },
+        cost: { total_cost_usd: 0.42, total_duration_ms: 185000 },
+        prompt_cache: pc,
+      });
+      return stripAnsi(renderPowerlineLine2(makeCtx({ input, icons: EMOJI_ICONS, ...overrides }), 'truecolor', null, c));
+    }
+
+    afterEach(() => vi.useRealTimers());
+
+    it('is hidden while the cache is warm with plenty of TTL left', () => {
+      expect(render(warmPc)).not.toContain(EMOJI_ICONS.cacheCold);
+    });
+
+    it('shows the countdown when refreshInterval keeps the line live', () => {
+      const config = { ...DEFAULT_CONFIG, refreshInterval: 5, display: { ...DEFAULT_DISPLAY } };
+      expect(render({ ...warmPc, expires_at: NOW + 8 * 60 }, { config })).toContain(`${EMOJI_ICONS.cacheCold} 8m · 103k`);
+    });
+
+    it('shows the cold segment once the TTL lapsed', () => {
+      expect(render({ ...warmPc, warm: false })).toContain(`${EMOJI_ICONS.cacheCold} cold · 103k`);
+    });
+
+    it('shows the miss segment right after a miss', () => {
+      const pc = {
+        ...warmPc, misses: 2, miss_recache_tokens: 202640, last_miss_at: NOW - 30,
+        last_miss_cause: { causes: ['model_changed'] },
+      };
+      expect(render(pc)).toContain('miss ×2 · 203k · model changed');
+    });
+
+    it('is hidden when display.promptCache is false', () => {
+      const config = { ...DEFAULT_CONFIG, display: { ...DEFAULT_DISPLAY, promptCache: false } };
+      expect(render({ ...warmPc, warm: false }, { config })).not.toContain('cold');
+    });
+
+    describe('background per state', () => {
+      const bg = (rgb: { r: number; g: number; b: number }) => `\x1b[48;2;${rgb.r};${rgb.g};${rgb.b}m`;
+      // Only the prompt cache segment renders, so its bg is the only one in the output.
+      const onlyCache = Object.fromEntries(Object.keys(DEFAULT_DISPLAY).map(k => [k, k === 'promptCache']));
+      const config = { ...DEFAULT_CONFIG, refreshInterval: 5, display: { ...DEFAULT_DISPLAY, ...onlyCache } };
+
+      function raw(pc: object): string {
+        vi.useFakeTimers({ now: NOW * 1000 });
+        const input = normalize({
+          model: 'Claude Sonnet 4.6',
+          session_id: 'test',
+          context_window: { used_percentage: 42, remaining_percentage: 58, total_input_tokens: 12000, total_output_tokens: 1800 },
+          prompt_cache: pc,
+        });
+        return renderPowerlineLine2(makeCtx({ input, icons: EMOJI_ICONS, config }), 'truecolor', null, c);
+      }
+
+      it('uses taskBg for a miss', () => {
+        const pc = { ...warmPc, misses: 1, miss_recache_tokens: 99076, last_miss_at: NOW - 30 };
+        expect(raw(pc)).toContain(bg(DEFAULT_POWERLINE_PALETTE.taskBg));
+      });
+
+      it('uses dirBg when cold', () => {
+        expect(raw({ ...warmPc, warm: false })).toContain(bg(DEFAULT_POWERLINE_PALETTE.dirBg));
+      });
+
+      it('uses versionBg when expiring', () => {
+        expect(raw({ ...warmPc, expires_at: NOW + 300 })).toContain(bg(DEFAULT_POWERLINE_PALETTE.versionBg));
+      });
     });
   });
 });

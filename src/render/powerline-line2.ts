@@ -12,6 +12,7 @@ import { computeApiLatency, formatApiLatency } from './api-latency.js';
 import { getConfigHealth } from '../parsers/config-health.js';
 import { computePaceDelta, formatPaceDelta } from './pace.js';
 import { computeQuotaProjection, formatProjectionWarning } from './quota-projection.js';
+import { getPromptCacheBadge, isLiveRefresh, type PromptCacheBadgeKind } from './prompt-cache.js';
 import type { RenderContext } from '../types.js';
 
 const SEVEN_DAY_WINDOW_SEC = 7 * 24 * 3600;
@@ -33,6 +34,14 @@ function getCacheHitBg(rate: number, palette: PowerlinePalette): RGB {
     case 'mild': return palette.versionBg;
     case 'moderate': return palette.taskBg;
     case 'critical': return palette.branchDirtyBg;
+  }
+}
+
+function getPromptCacheBg(kind: PromptCacheBadgeKind, palette: PowerlinePalette): RGB {
+  switch (kind) {
+    case 'miss': return palette.taskBg;
+    case 'cold': return palette.dirBg;
+    case 'expiring': return palette.versionBg;
   }
 }
 
@@ -247,6 +256,14 @@ function buildSegments(ctx: RenderContext, palette: PowerlinePalette, c: Colors)
   if (display.cacheMetrics && input.cacheHitRate != null && input.cacheHitRate < 90) {
     const bg = getCacheHitBg(input.cacheHitRate, palette);
     segments.push({ text: `${input.cacheHitRate}%${icons.lightning}`, bg, fg: palette.fg, priority: 50 });
+  }
+
+  if (display.promptCache) {
+    const badge = getPromptCacheBadge(input.promptCache, {
+      icon: icons.cacheCold,
+      liveCountdown: isLiveRefresh(ctx.config.refreshInterval),
+    });
+    if (badge) segments.push({ text: badge.text, bg: getPromptCacheBg(badge.kind, palette), fg: palette.fg, priority: 50 });
   }
 
   // MCP servers

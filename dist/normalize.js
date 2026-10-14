@@ -30,6 +30,46 @@ export function sanitizeTermString(s) {
 const VALID_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 /** Allowed values for PR review state (CC ≥ 2.1.145). */
 const VALID_PR_REVIEW_STATES = new Set(PR_REVIEW_STATES);
+const PROMPT_CACHE_TTL_SEC = new Map([['5m', 300], ['1h', 3600]]);
+const MAX_MISS_CAUSES = 3;
+const MAX_MISS_CAUSE_LEN = 32;
+function nonNegative(n) {
+    return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+function nonNegativeInt(n) {
+    return typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 ? n : undefined;
+}
+/**
+ * Validate the untrusted `prompt_cache` object. Drops the whole object when the
+ * two booleans that define its state are malformed; individual bad numbers are
+ * dropped field-by-field so one odd value doesn't hide the rest.
+ */
+function parsePromptCache(raw) {
+    if (typeof raw !== 'object' || raw === null)
+        return undefined;
+    const pc = raw;
+    if (typeof pc.warm !== 'boolean' || typeof pc.caching_observed !== 'boolean')
+        return undefined;
+    const rawCauses = pc.last_miss_cause && typeof pc.last_miss_cause === 'object' && Array.isArray(pc.last_miss_cause.causes)
+        ? pc.last_miss_cause.causes
+        : [];
+    const lastMissCauses = rawCauses
+        .filter((x) => typeof x === 'string')
+        .map(x => Array.from(sanitizeTermString(x)).slice(0, MAX_MISS_CAUSE_LEN).join(''))
+        .filter(x => x.length > 0)
+        .slice(0, MAX_MISS_CAUSES);
+    return {
+        warm: pc.warm,
+        cachingObserved: pc.caching_observed,
+        ttlSec: typeof pc.ttl === 'string' ? PROMPT_CACHE_TTL_SEC.get(pc.ttl) : undefined,
+        expiresAt: nonNegative(pc.expires_at),
+        misses: nonNegativeInt(pc.misses) ?? 0,
+        missRecacheTokens: nonNegative(pc.miss_recache_tokens) ?? 0,
+        lastMissAt: nonNegative(pc.last_miss_at),
+        lastMissCauses,
+        recacheIfCold: nonNegative(pc.recache_tokens_if_cold),
+    };
+}
 /**
  * Sum input token categories from `context_window.current_usage` to compute
  * a real context usage total (input + cache_read + cache_creation).
@@ -251,6 +291,7 @@ export function normalize(input) {
             : undefined,
         thinkingEnabled: claude?.thinking?.enabled === true ? true : undefined,
         fastMode: claude?.fast_mode === true ? true : undefined,
+        promptCache: claude ? parsePromptCache(claude.prompt_cache) : undefined,
         // Prefer the top-level worktree.name; fall back to workspace.git_worktree,
         // which CC populates for ANY git worktree (verified on v2.1.193) — even
         // sessions not started with --worktree, where worktree.name is absent.
