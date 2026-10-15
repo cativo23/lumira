@@ -131,8 +131,8 @@ export const EMOJI_ICONS: IconSet = {
   pr:        '\u{1F500}',  // 🔀 — twisted rightwards arrows (PR)
   repo:      '\u{1F4E6}',  // 📦 — package (repository)
   thinking:  '\u{1F4AD}',  // 💭 — thought bubble
-  // 🧊 rather than ❄ (U+2744): without VS16 terminals draw ❄ one cell wide
-  // while displayWidth counts the U+2600 block as two, misaligning the line.
+  // 🧊 rather than ❄ (U+2744): without VS16 terminals draw ❄ as a one-cell
+  // text glyph, not an emoji.
   cacheCold: '\u{1F9CA}',
   battery:   (pct: number) => {
     if (!Number.isFinite(pct) || pct < 0) return '\u{1F50B}'; // 🔋 — no data / invalid input

@@ -23,12 +23,35 @@ describe('displayWidth', () => {
     expect(displayWidth('\u{F0079}')).toBe(1); // battery (full)
     expect(displayWidth('\u{F008E}')).toBe(1); // battery_outline
   });
+  // The symbol blocks (U+2300–24FF, 25A0–25FF, 2600–27BF, 2B00–2BFF) are
+  // mostly East Asian Width N/A — terminals draw them in one cell. Counting the
+  // whole blocks as two left every line using them short of the edge.
+  it('counts the text symbols lumira draws as 1', () => {
+    for (const ch of ['✓', '○', '◐', '⚠', '⬆', '▶', '▸', '❯', '❄', '⏱']) expect(displayWidth(ch)).toBe(1);
+  });
+  it('counts East Asian Wide symbols in those blocks as 2', () => {
+    for (const ch of ['✅', '⚡', '⭐', '⌛', '❌', '☕']) expect(displayWidth(ch)).toBe(2);
+  });
+  it('counts a narrow symbol followed by VS16 (emoji presentation) as 2', () => {
+    expect(displayWidth('⚠️')).toBe(2);
+    expect(displayWidth('⏱️')).toBe(2);
+    expect(displayWidth('❄️')).toBe(2);
+  });
+  it('does not add a cell for VS16 after a character that is already wide', () => {
+    expect(displayWidth('\u{1F3CE}️')).toBe(2);
+    expect(displayWidth('⚡️')).toBe(2);
+  });
+  it('measures mixed text with symbols cell by cell', () => {
+    expect(displayWidth('✓ Read ◐ Edit')).toBe(13);
+    expect(displayWidth('⚠️ ~2d')).toBe(6);
+  });
 });
 
 describe('truncField', () => {
   it('returns string unchanged if within limit', () => { expect(truncField('hello', 10)).toBe('hello'); });
   it('truncates with ellipsis', () => { expect(truncField('hello world', 6)).toBe('hello\u2026'); });
   it('handles max=1', () => { expect(truncField('hello', 1)).toBe('\u2026'); });
+  it('truncates one-cell symbols by their real width', () => { expect(truncField('\u2713\u2713\u2713\u2713', 3)).toBe('\u2713\u2713\u2026'); });
 });
 
 describe('truncatePath', () => {

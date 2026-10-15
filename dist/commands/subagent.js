@@ -64,20 +64,6 @@ function rowMeta(task, icons, colors) {
 const MAX_TYPE_COL = 28;
 const MAX_MODEL_COL = 10;
 const COL_GAP = '  ';
-// Text-presentation dingbats that terminals draw in one cell (East Asian Width
-// N), though displayWidth counts the whole U+2600–27BF block as two.
-const NARROW_GLYPHS = new Set([0x2713, 0x2714, 0x2717, 0x2718]);
-/** Terminal cells a state glyph occupies — padding glyphs to align columns needs the real width. */
-function glyphCells(glyph) {
-    if (!glyph)
-        return 0;
-    if (glyph.includes('️'))
-        return 2;
-    let w = 0;
-    for (const ch of glyph)
-        w += NARROW_GLYPHS.has(ch.codePointAt(0)) ? 1 : displayWidth(ch);
-    return w;
-}
 /** `claude-haiku-5-5` / `claude-3-5-haiku-…` → `haiku`. Anything else has no short form and is omitted. */
 export function modelFamily(model) {
     const family = /^claude-(?:\d+-)*([a-z]+)(?:-|$)/.exec(clean(model))?.[1] ?? '';
@@ -120,7 +106,7 @@ export function renderSubagentContent(task, icons, colors, columns, cols = subag
     const name = clean(task.name) || meaningfulType || clean(task.description) || clean(task.id) || 'agent';
     const agentType = clean(task.agentType);
     const model = modelFamily(task.model);
-    const iconW = cols.glyph === undefined ? (icon ? displayWidth(icon) : 0) : glyphCells(icon);
+    const iconW = displayWidth(icon);
     const glyphW = Math.max(cols.glyph ?? iconW, iconW);
     const prefix = glyphW ? `${icon ? color(icon) : ''}${' '.repeat(glyphW - iconW)} ` : '';
     const prefixW = glyphW ? glyphW + 1 : 0;
@@ -179,7 +165,7 @@ function alignColumns(rows, icons, colors, columns) {
     if (!cols.type && !cols.model)
         return cols;
     const metas = rows.map(t => rowMeta(t, icons, colors));
-    const glyph = Math.max(0, ...metas.map(m => glyphCells(m.icon)));
+    const glyph = Math.max(0, ...metas.map(m => displayWidth(m.icon)));
     let { type, model } = cols;
     if (columns !== undefined && columns > 0) {
         const glyphCell = glyph ? glyph + 1 : 0;

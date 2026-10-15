@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Symbol widths.** lumira counted every character in the symbol blocks (U+2300–24FF, 25A0–25FF, 2600–27BF, 2B00–2BFF) as two cells, but terminals draw most of them — `✓ ○ ◐ ⚠ ⬆ ▶` — in one. Lines reserved a cell per symbol they didn't use: the right side of `justified` lines ended short of the edge, and segments were dropped as "too wide" when they fit. Hardest hit was powerline's `compatible` style (the automatic fallback without a Nerd Font), whose `▶` separator was counted double — at 120 columns its first line now shows ~23 more cells of content. Only the genuinely wide symbols (`✅ ⚡ ⭐ ⌛ …`) still count as two, and a symbol followed by VS16 (`⚠️`, `⏱️`) counts as two since that requests emoji presentation. Terminals set to draw East Asian *ambiguous* characters wide (some CJK setups) will see `○ ◐ ▶` take two cells, which lumira now counts as one.
 - **Subagent rows: `killed` state.** A subagent you stop now shows a yellow `—` and `killed`, instead of the raw status with no glyph. `failed` keeps rendering as an error.
 - **Subagent rows: untrusted text.** Strings from the subagent payload (description, agent type, model, name) are stripped of terminal control characters before rendering, and a non-string field no longer throws mid-render (which dropped lumira's styling for every row).
 

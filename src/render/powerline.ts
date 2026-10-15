@@ -46,10 +46,9 @@ export const POWERLINE_STYLES: Record<Exclude<PowerlineStyleName, 'auto'>, Style
   // has a distinct bg — the thin variant would only apply if we re-used a bg.
   round:      { leftCap: '', sep: '', rightCap: '', sepWidth: 1 },
   diamond:    { leftCap: '', rightCap: '', gap: true, sepWidth: 2 },
-  // `▶` (U+25B6) sits in the 0x25A0–0x25FF range which displayWidth treats as
-  // double-width. Must match that assumption or powerlineWidth drifts from
-  // the actual rendered width.
-  compatible: { sep: '▶', sepWidth: 2 },
+  // `▶` (U+25B6) is East Asian Width A: one cell in terminals, and one in
+  // displayWidth. Must match or powerlineWidth drifts from the rendered width.
+  compatible: { sep: '▶', sepWidth: 1 },
   plain:      { sep: ' ', sepWidth: 1 },
 };
 
