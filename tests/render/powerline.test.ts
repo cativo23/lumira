@@ -137,6 +137,11 @@ describe('powerline', () => {
       expect(powerlineWidth(segments, POWERLINE_STYLES.arrow)).toBe(displayWidth(rendered));
     });
 
+    it('counts the compatible ▶ separator as the one cell terminals draw', () => {
+      // ' hello ' (7) + ▶ (1) + ' world ' (7) + terminating ▶ (1)
+      expect(powerlineWidth([seg('hello', RED), seg('world', GREEN)], POWERLINE_STYLES.compatible)).toBe(16);
+    });
+
     it('width matches rendered output for all 7 styles', () => {
       const segments = [seg('hello', RED, 100), seg('world', GREEN, 90)];
       for (const name of ['arrow', 'flame', 'slant', 'round', 'diamond', 'compatible', 'plain'] as const) {

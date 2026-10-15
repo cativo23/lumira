@@ -1,46 +1,85 @@
 import { stripAnsi } from './colors.js';
+// East Asian Wide (W) code points inside the symbol blocks U+2300–24FF,
+// 25A0–25FF, 2600–27BF and 2B00–2BFF (Unicode 16). Everything else in those
+// blocks is N or A and terminals draw it in one cell — ✓ ○ ◐ ⚠ ▶ ❯ ❄ included.
+const WIDE_SYMBOLS = [
+    [0x231A, 0x231B], [0x2329, 0x232A], [0x23E9, 0x23EC], [0x23F0, 0x23F0], [0x23F3, 0x23F3],
+    [0x25FD, 0x25FE],
+    [0x2614, 0x2615], [0x2630, 0x2637], [0x2648, 0x2653], [0x267F, 0x267F], [0x268A, 0x268F],
+    [0x2693, 0x2693], [0x26A1, 0x26A1], [0x26AA, 0x26AB], [0x26BD, 0x26BE], [0x26C4, 0x26C5],
+    [0x26CE, 0x26CE], [0x26D4, 0x26D4], [0x26EA, 0x26EA], [0x26F2, 0x26F3], [0x26F5, 0x26F5],
+    [0x26FA, 0x26FA], [0x26FD, 0x26FD], [0x2705, 0x2705], [0x270A, 0x270B], [0x2728, 0x2728],
+    [0x274C, 0x274C], [0x274E, 0x274E], [0x2753, 0x2755], [0x2757, 0x2757], [0x2795, 0x2797],
+    [0x27B0, 0x27B0], [0x27BF, 0x27BF],
+    [0x2B1B, 0x2B1C], [0x2B50, 0x2B50], [0x2B55, 0x2B55],
+];
+const VS16 = 0xFE0F;
+function isWideSymbol(cp) {
+    for (const [lo, hi] of WIDE_SYMBOLS)
+        if (cp >= lo && cp <= hi)
+            return true;
+    return false;
+}
+function charWidth(cp) {
+    // U+20E3 closes a keycap (1️⃣): the base + VS16 already account for its two cells.
+    if ((cp >= 0xFE00 && cp <= 0xFE0F) || cp === 0x200D || cp === 0x20E3 || (cp >= 0x0300 && cp <= 0x036F))
+        return 0;
+    // Nerd Font Supplementary Private Use Area-A glyphs (Material Design,
+    // codicons, etc., U+F0000–U+FFFFF) render as single cells on patched
+    // fonts — same as the BMP PUA Nerd glyphs that fall through to width 1
+    // below. Without this exclusion the catch-all `>= 0x1F000` would treat
+    // them as 2 cells and break `fitSegments` layout calculations.
+    if (cp >= 0xF0000 && cp <= 0xFFFFF)
+        return 1;
+    // Kept at 2 even for the few text-default pictographs (🏎 without VS16):
+    // over-counting leaves a blank cell, under-counting overflows the line.
+    if (cp >= 0x1F000 || (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3000 && cp <= 0x303F) ||
+        (cp >= 0xFF00 && cp <= 0xFFEF))
+        return 2;
+    if (cp < 0x2300 || cp > 0x2BFF)
+        return 1;
+    return isWideSymbol(cp) ? 2 : 1;
+}
 export function displayWidth(str) {
     const clean = stripAnsi(str);
     let w = 0;
+    let last = 0;
     for (const ch of clean) {
         const cp = ch.codePointAt(0);
-        if ((cp >= 0xFE00 && cp <= 0xFE0F) || cp === 0x200D || (cp >= 0x0300 && cp <= 0x036F))
-            continue;
-        // Nerd Font Supplementary Private Use Area-A glyphs (Material Design,
-        // codicons, etc., U+F0000–U+FFFFF) render as single cells on patched
-        // fonts — same as the BMP PUA Nerd glyphs that fall through to width 1
-        // below. Without this exclusion the catch-all `>= 0x1F000` would treat
-        // them as 2 cells and break `fitSegments` layout calculations.
-        if (cp >= 0xF0000 && cp <= 0xFFFFF) {
-            w += 1;
+        // VS16 asks for emoji presentation, which terminals draw two cells wide.
+        if (cp === VS16) {
+            if (last === 1) {
+                w += 1;
+                last = 2;
+            }
             continue;
         }
-        // 0x2300–0x24FF covers wide Misc-Technical / Enclosed-Alphanumeric symbols
-        // but STOPS before the Box Drawing block (U+2500–U+257F), whose glyphs —
-        // including │ (U+2502), lumira's default SEP separator — are single-cell.
-        // Counting them as 2 over-reserved width on every separated line.
-        if (cp >= 0x1F000 || (cp >= 0x2300 && cp <= 0x24FF) || (cp >= 0x25A0 && cp <= 0x25FF) ||
-            (cp >= 0x2600 && cp <= 0x27BF) || (cp >= 0x2B00 && cp <= 0x2BFF) ||
-            (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3000 && cp <= 0x303F) || (cp >= 0xFF00 && cp <= 0xFFEF)) {
-            w += 2;
-        }
-        else {
-            w += 1;
-        }
+        const cw = charWidth(cp);
+        w += cw;
+        if (cw)
+            last = cw;
     }
     return w;
 }
 export function truncField(str, max) {
     if (displayWidth(str) <= max)
         return str;
-    // Build truncated string character by character using display width
+    // Build truncated string unit by unit using display width; a VS16 stays with
+    // its base so the pair is measured (and kept or dropped) together.
+    const units = [];
+    for (const ch of str) {
+        if (ch.codePointAt(0) === VS16 && units.length)
+            units[units.length - 1] += ch;
+        else
+            units.push(ch);
+    }
     let result = '';
     let w = 0;
-    for (const ch of str) {
-        const cw = displayWidth(ch);
+    for (const unit of units) {
+        const cw = displayWidth(unit);
         if (w + cw + 1 > max)
             break; // +1 for ellipsis
-        result += ch;
+        result += unit;
         w += cw;
     }
     return result + '\u2026';
