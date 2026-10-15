@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, symlinkSync, lstatSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, symlinkSync, lstatSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PassThrough, Readable, Writable } from 'node:stream';
@@ -259,6 +259,23 @@ describe('install', () => {
       await expect(install(baseOpts())).rejects.toThrow(/symlink .*config\.json.*could not be created/s);
       expect(readFileSync(settingsPath, 'utf8')).toBe(foreign);
       expect(existsSync(backupPath)).toBe(false);
+    });
+
+    it.skipIf(process.getuid?.() === 0)('stops before writing anything when config.json links into a read-only directory', async () => {
+      const foreign = JSON.stringify({ statusLine: { type: 'command', command: 'other-tool', padding: 0 } });
+      writeFileSync(settingsPath, foreign);
+      const store = join(dir, 'store');
+      mkdirSync(store);
+      writeFileSync(join(store, 'config.json'), '{}');
+      chmodSync(store, 0o500);
+      symlinkSync(join(store, 'config.json'), configPath);
+      try {
+        await expect(install(baseOpts())).rejects.toThrow(/config\.json.*not writable/s);
+        expect(readFileSync(settingsPath, 'utf8')).toBe(foreign);
+        expect(existsSync(backupPath)).toBe(false);
+      } finally {
+        chmodSync(store, 0o700);
+      }
     });
 
     it('creates parent directories that do not exist', async () => {
@@ -569,6 +586,21 @@ describe('uninstall', () => {
     expect(readFileSync(backupPath, 'utf8')).toBe('this is not valid JSON!!!');
     const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
     expect(data.statusLine).toBeUndefined();
+  });
+
+  it('keeps a backup it did not restore from', () => {
+    const backup = { statusLine: { type: 'command', command: 'old-tool', padding: 0 } };
+    const current = {
+      statusLine: { type: 'command', command: 'my-own-renderer', padding: 0 },
+      subagentStatusLine: { type: 'command', command: 'lumira subagent', padding: 0 },
+    };
+    writeFileSync(backupPath, JSON.stringify(backup));
+    writeFileSync(settingsPath, JSON.stringify(current));
+    uninstall({ settingsPath });
+    const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    expect(data.subagentStatusLine).toBeUndefined();
+    expect(data.statusLine.command).toBe('my-own-renderer');
+    expect(existsSync(backupPath)).toBe(true);
   });
 
   it('treats an empty backup as corrupt and keeps it', () => {

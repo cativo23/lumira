@@ -71,6 +71,12 @@ describe('readJsonObject', () => {
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'lumira-json-file-')); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
+  it('accepts a file saved with a UTF-8 BOM', () => {
+    const p = join(dir, 'settings.json');
+    writeFileSync(p, '\uFEFF{"a":1}');
+    expect(readJsonObject(p)).toEqual({ a: 1 });
+  });
+
   it.each([[''], ['  \n']])('treats an empty file (%j) as an empty object — it holds nothing to lose', (contents) => {
     const p = join(dir, 'settings.json');
     writeFileSync(p, contents);

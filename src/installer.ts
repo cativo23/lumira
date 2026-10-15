@@ -8,7 +8,7 @@ import { createInterface } from 'node:readline';
 import { runWizard } from './installer-wizard.js';
 import { saveConfig, loadConfig, type WizardResult } from './config.js';
 import { getBanner, getSubtitle } from './tui/banner.js';
-import { readJsonObject, writeTarget } from './utils/json-file.js';
+import { assertWritable, readJsonObject, writeTarget } from './utils/json-file.js';
 
 // ── ANSI helpers ────────────────────────────────────────────────────
 const RST = '\x1b[0m';
@@ -299,6 +299,8 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
   // fail here, not after settings.json has been rewritten and backed up.
   const settingsTarget = writeTarget(settingsPath);
   const configTarget = writeTarget(configPath);
+  assertWritable(settingsTarget);
+  assertWritable(configTarget);
   if (existsSync(settingsTarget)) settings = readJsonObject(settingsTarget);
   // finalize() saves config.json after settings.json is already written —
   // check it can be saved now, so a broken config stops the install untouched.
@@ -478,7 +480,7 @@ export function uninstall(opts: InstallerOptions = {}): string {
   }
   if (changed) {
     writeSettingsAtomic(uninstSettings, settingsPath);
-    if (backup) unlinkSync(backupPath);
+    if (restored) unlinkSync(backupPath);
     lines.push(ok(restored ? 'Restored previous statusline from backup' : 'Removed lumira statusline from settings'));
   } else {
     lines.push(ok('lumira is not configured in settings.json — nothing to change'));
