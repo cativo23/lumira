@@ -21,7 +21,8 @@ function isWideSymbol(cp) {
     return false;
 }
 function charWidth(cp) {
-    if ((cp >= 0xFE00 && cp <= 0xFE0F) || cp === 0x200D || (cp >= 0x0300 && cp <= 0x036F))
+    // U+20E3 closes a keycap (1️⃣): the base + VS16 already account for its two cells.
+    if ((cp >= 0xFE00 && cp <= 0xFE0F) || cp === 0x200D || cp === 0x20E3 || (cp >= 0x0300 && cp <= 0x036F))
         return 0;
     // Nerd Font Supplementary Private Use Area-A glyphs (Material Design,
     // codicons, etc., U+F0000–U+FFFFF) render as single cells on patched
@@ -35,6 +36,8 @@ function charWidth(cp) {
     if (cp >= 0x1F000 || (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3000 && cp <= 0x303F) ||
         (cp >= 0xFF00 && cp <= 0xFFEF))
         return 2;
+    if (cp < 0x2300 || cp > 0x2BFF)
+        return 1;
     return isWideSymbol(cp) ? 2 : 1;
 }
 export function displayWidth(str) {
@@ -79,7 +82,7 @@ export function truncField(str, max) {
         result += unit;
         w += cw;
     }
-    return result + '…';
+    return result + '\u2026';
 }
 export function truncatePath(str, maxLen = 20) {
     if (!str)

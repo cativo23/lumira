@@ -41,6 +41,9 @@ describe('displayWidth', () => {
     expect(displayWidth('\u{1F3CE}️')).toBe(2);
     expect(displayWidth('⚡️')).toBe(2);
   });
+  it('counts a keycap sequence as the two cells terminals draw', () => {
+    expect(displayWidth('1️⃣')).toBe(2);
+  });
   it('measures mixed text with symbols cell by cell', () => {
     expect(displayWidth('✓ Read ◐ Edit')).toBe(13);
     expect(displayWidth('⚠️ ~2d')).toBe(6);
@@ -52,6 +55,9 @@ describe('truncField', () => {
   it('truncates with ellipsis', () => { expect(truncField('hello world', 6)).toBe('hello\u2026'); });
   it('handles max=1', () => { expect(truncField('hello', 1)).toBe('\u2026'); });
   it('truncates one-cell symbols by their real width', () => { expect(truncField('\u2713\u2713\u2713\u2713', 3)).toBe('\u2713\u2713\u2026'); });
+  it('keeps a VS16 with its base so an emoji pair is never split or undercounted', () => {
+    expect(truncField('\u26a0\ufe0f\u26a0\ufe0f\u26a0\ufe0f', 4)).toBe('\u26a0\ufe0f\u2026');
+  });
 });
 
 describe('truncatePath', () => {

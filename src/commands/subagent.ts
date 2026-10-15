@@ -101,7 +101,6 @@ const MAX_TYPE_COL = 28;
 const MAX_MODEL_COL = 10;
 const COL_GAP = '  ';
 
-
 /** `claude-haiku-5-5` / `claude-3-5-haiku-…` → `haiku`. Anything else has no short form and is omitted. */
 export function modelFamily(model: unknown): string {
   const family = /^claude-(?:\d+-)*([a-z]+)(?:-|$)/.exec(clean(model))?.[1] ?? '';

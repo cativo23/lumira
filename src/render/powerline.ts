@@ -95,9 +95,8 @@ export function powerlineWidth(segments: PowerlineSegment[], style: Style): numb
   let w = bodyW;
   if (style.leftCap) w += 1;
   w += (segments.length - 1) * style.sepWidth;
-  // Terminator glyph — rightCap is always 1 col (Nerd Font PUA), while sep
-  // can be wider (e.g. `▶` for compatible). Use sepWidth when the terminator
-  // is a sep, otherwise 1.
+  // Terminator glyph — rightCap is always 1 col (Nerd Font PUA); when the
+  // terminator is a sep, use sepWidth.
   w += style.rightCap ? 1 : style.sepWidth;
   return w;
 }
