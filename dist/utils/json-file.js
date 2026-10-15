@@ -26,6 +26,14 @@ export function readJsonObject(path) {
     }
     return parsed;
 }
+function realDir(dir) {
+    try {
+        return realpathSync(dir);
+    }
+    catch {
+        return dir;
+    }
+}
 /**
  * The path an atomic temp-file + rename should land on. Renaming onto a
  * symlink replaces the link with a plain file (detaching a dotfiles-managed
@@ -54,7 +62,9 @@ export function writeTarget(path) {
             catch {
                 return current;
             }
-            current = resolve(dirname(current), readlinkSync(current));
+            // Resolve against the link's real directory: the OS applies `..` after
+            // following any directory symlink earlier in the path, not textually.
+            current = resolve(realDir(dirname(current)), readlinkSync(current));
         }
         throw new Error(`${path}: too many levels of symbolic links`);
     }

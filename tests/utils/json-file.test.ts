@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { writeTarget } from '../../src/utils/json-file.js';
@@ -19,13 +19,22 @@ describe('writeTarget', () => {
   it('follows a relative link', () => {
     writeFileSync(join(dir, 'real.json'), '{}');
     symlinkSync('real.json', join(dir, 'link.json'));
-    expect(writeTarget(join(dir, 'link.json'))).toBe(join(dir, 'real.json'));
+    expect(writeTarget(join(dir, 'link.json'))).toBe(join(realpathSync(dir), 'real.json'));
   });
 
   it('follows a chain of dangling links to its final target', () => {
     symlinkSync('a.json', join(dir, 'settings.json'));
     symlinkSync('b.json', join(dir, 'a.json'));
-    expect(writeTarget(join(dir, 'settings.json'))).toBe(join(dir, 'b.json'));
+    expect(writeTarget(join(dir, 'settings.json'))).toBe(join(realpathSync(dir), 'b.json'));
+  });
+
+  it('resolves .. in a dangling chain against the real directory, as the OS does', () => {
+    mkdirSync(join(dir, 'home'));
+    mkdirSync(join(dir, 'real', 'sub'), { recursive: true });
+    symlinkSync('../real/sub', join(dir, 'home', 'linkdir'));
+    symlinkSync('linkdir/a.json', join(dir, 'home', 'settings.json'));
+    symlinkSync('../b.json', join(dir, 'real', 'sub', 'a.json'));
+    expect(writeTarget(join(dir, 'home', 'settings.json'))).toBe(join(realpathSync(dir), 'real', 'b.json'));
   });
 
   it('refuses a symlink loop', () => {
