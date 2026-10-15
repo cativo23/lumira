@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-10-15
+
 ### Added
 
 - **Prompt cache badge.** Reads the `prompt_cache` object CC ≥ 2.1.251 sends to the statusline and surfaces it only when there's something to act on: `❄ 8m · 103k` when the cache is about to go cold (last 10 minutes of a 1h TTL, last minute of a 5m one), `❄ cold · 103k` once it has, and `miss ×2 · 203k · model changed` for five minutes after a cache miss, unless the cache is already cold or about to be — those take precedence (`❄` stands for the Nerd Font snowflake; emoji mode shows 🧊). The token figure is what the next request re-caches if you let it go cold (`recache_tokens_if_cold`); on a miss it is the session's cumulative re-cache total. The countdown needs a `refreshInterval` of 60s or faster in lumira's own config, transcribed to `settings.json` by `lumira install` — CC only re-renders on events, so without a timer the badge shows the clock time the cache expires (`❄ 14:26 · 103k`) instead of a number that would freeze. Miss causes CC doesn't document yet (e.g. `model_changed`, seen live) are shown as-is. Toggle: `display.promptCache` (on in `full`/`balanced`, off in `minimal`). Independent of `cacheMetrics`, which measures the current turn — both can show after a miss.
@@ -684,7 +686,9 @@ First stable release. API is now considered stable under SemVer.
 - GSD session IDs sanitized against path traversal
 - `execFile` used instead of `exec` to prevent shell injection (except terminal width detection where shell redirect is required with procfs-sourced paths)
 
-[Unreleased]: https://github.com/cativo23/lumira/compare/v1.18.0...HEAD
+[Unreleased]: https://github.com/cativo23/lumira/compare/v1.19.0...HEAD
+[1.19.0]: https://github.com/cativo23/lumira/compare/v1.18.1...v1.19.0
+[1.18.1]: https://github.com/cativo23/lumira/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/cativo23/lumira/compare/v1.17.1...v1.18.0
 [1.17.1]: https://github.com/cativo23/lumira/compare/v1.17.0...v1.17.1
 [1.17.0]: https://github.com/cativo23/lumira/compare/v1.16.2...v1.17.0
