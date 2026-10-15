@@ -42,7 +42,7 @@ stdin (JSON from Claude Code or Qwen Code)
 - **`main`** — single trunk. Always releasable. **Open PRs here.**
 - **Feature branches** — `feature/<name>`, `fix/<name>`, `docs/<name>`, `refactor/<name>`. Branch off `main`, target `main`.
 
-No develop branch, no release branches. Releases are cut by tagging `main` (see [Release process](#release-process-maintainers-only) below).
+No develop branch, no long-lived release branches. Releases are cut by a short-lived `chore/release-vX.Y.Z` PR and then tagging `main` (see [Release process](#release-process-maintainers-only) below).
 
 ## Commit style
 
@@ -100,20 +100,23 @@ PRs run CI on push. When tests + typecheck go green, the PR is **ready for revie
 
 - Shell prompt features (zsh/fish/etc.) — lumira is a Claude Code/Qwen Code statusline, not a shell prompt.
 - Cross-Claude-version test matrix — we test against the current Claude Code release, not historical ones.
-- Plugin / custom-segment marketplace — hold off until at least 3 users request it.
+- A community gallery of Custom Widgets — on hold until there's real demand (lumira itself already ships as a Claude Code plugin, and [Custom Widgets](docs/custom-widgets.md) cover custom segments).
 - Auto-update / self-update — npm handles this.
 - Telemetry — never.
 
 ## Release process (maintainers only)
 
-Releases are tag-triggered. From an up-to-date `main`:
+Releases are tag-triggered, and the release commit goes through a PR like any other change. From an up-to-date `main`:
 
 ```bash
-npm version X.Y.Z --no-git-tag-version       # bump package.json
-# edit CHANGELOG.md: rename [Unreleased] → [X.Y.Z] - YYYY-MM-DD
+git checkout -b chore/release-vX.Y.Z
+npm version X.Y.Z --no-git-tag-version       # bumps package.json + lock, syncs .claude-plugin/*.json
+# edit CHANGELOG.md: rename [Unreleased] → [X.Y.Z] - YYYY-MM-DD, update compare links
 git commit -am "chore(release): vX.Y.Z"
-git tag vX.Y.Z
-git push origin main --tags
+git push -u origin chore/release-vX.Y.Z      # open a PR to main; merge once CI is green
+# after the PR merges, from the synced main:
+git tag vX.Y.Z <merged-sha>
+git push origin vX.Y.Z
 ```
 
 Pushing the `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which publishes to npm and creates the GitHub Release with notes parsed from `CHANGELOG.md`. Tags with a SemVer suffix (e.g. `v1.0.0-beta.1`) are flagged as prereleases; stable cuts surface as Latest.
