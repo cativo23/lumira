@@ -85,15 +85,24 @@ notes from CHANGELOG.md → runs `npm publish`. Tags with a SemVer suffix
 (`v1.0.0-beta.1`) are marked pre-release; the rest are Latest.
 
 **Release process (maintainers only):**
-1. From `main`, after the work is merged: `npm version X.Y.Z --no-git-tag-version`.
-2. Move the `[Unreleased]` changelog entries into a new `[X.Y.Z] - YYYY-MM-DD`
-   section. Update the compare links.
-3. `git commit -am "chore(release): vX.Y.Z"`
-4. `git tag vX.Y.Z && git push origin main --tags`
-5. CI takes over: GitHub Release + npm publish happen automatically.
+1. From an up-to-date `main`, after the work is merged: `git checkout -b chore/release-vX.Y.Z`.
+2. `npm version X.Y.Z --no-git-tag-version` — bumps `package.json` and
+   `package-lock.json`, and its lifecycle hook syncs `.claude-plugin/*.json`.
+   It creates no commit and no tag.
+3. Move the `[Unreleased]` changelog entries into a new `[X.Y.Z] - YYYY-MM-DD`
+   section. Update the compare links. `release.yml` publishes that section as
+   the release notes, so it must exist.
+4. `git commit -am "chore(release): vX.Y.Z"`, push, and open a PR to `main`.
+   **The release commit goes through a PR like any other change — never push
+   to `main` directly.** Merge it once CI is green and the maintainer approves.
+5. Sync `main`, then tag the merged release commit:
+   `git tag vX.Y.Z <sha> && git push origin vX.Y.Z`. Only the tag is pushed
+   directly.
+6. CI takes over: GitHub Release + npm publish happen automatically.
 
-There is no `develop` branch and no release PR ceremony. The tag is the
-release artifact.
+There is no `develop` branch. The tag is the release artifact; publishing to
+npm cannot be undone, so the tag is pushed only with the maintainer's explicit
+go-ahead.
 
 ## Guardrails
 
