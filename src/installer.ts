@@ -1,4 +1,4 @@
-import { existsSync, copyFileSync, unlinkSync, mkdirSync, rmdirSync, renameSync, openSync, writeSync, fsyncSync, closeSync } from 'node:fs';
+import { existsSync, statSync, copyFileSync, unlinkSync, mkdirSync, rmdirSync, renameSync, openSync, writeSync, fsyncSync, closeSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -295,10 +295,14 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
   // the replacement at the end.
   let settings: Record<string, unknown> = {};
 
-  if (existsSync(settingsPath)) settings = readJsonObject(settingsPath);
+  // Resolve both write targets first: a link into a missing directory must
+  // fail here, not after settings.json has been rewritten and backed up.
+  const settingsTarget = writeTarget(settingsPath);
+  const configTarget = writeTarget(configPath);
+  if (existsSync(settingsTarget)) settings = readJsonObject(settingsTarget);
   // finalize() saves config.json after settings.json is already written —
   // check it can be saved now, so a broken config stops the install untouched.
-  if (existsSync(configPath)) readJsonObject(configPath);
+  if (existsSync(configTarget)) readJsonObject(configTarget);
 
   const hasForeignStatusLine = settings.statusLine && !isLumira(settings.statusLine);
   if (hasForeignStatusLine) {
@@ -451,6 +455,9 @@ export function uninstall(opts: InstallerOptions = {}): string {
   let backup: Record<string, unknown> | undefined;
   if (existsSync(backupPath)) {
     try {
+      // Install only writes a backup holding a statusline, so an empty one is
+      // corrupt — unlike settings.json, where empty just means "no settings".
+      if (statSync(backupPath).size === 0) throw new Error('empty backup');
       backup = readJsonObject(backupPath);
     } catch {
       lines.push(warn(`Backup file is corrupt — skipping restore, kept at ${DIM}${backupPath}${RST}`));

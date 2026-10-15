@@ -252,6 +252,15 @@ describe('install', () => {
       expect(JSON.parse(readFileSync(target, 'utf8')).statusLine.command).toBe('npx lumira');
     });
 
+    it('stops before writing anything when config.json links into a missing directory', async () => {
+      const foreign = JSON.stringify({ statusLine: { type: 'command', command: 'other-tool', padding: 0 } });
+      writeFileSync(settingsPath, foreign);
+      symlinkSync(join(dir, 'missing', 'config.json'), configPath);
+      await expect(install(baseOpts())).rejects.toThrow(/symlink .*config\.json.*could not be created/s);
+      expect(readFileSync(settingsPath, 'utf8')).toBe(foreign);
+      expect(existsSync(backupPath)).toBe(false);
+    });
+
     it('creates parent directories that do not exist', async () => {
       const nested = join(dir, 'nested', 'deep', 'settings.json');
       await install({ ...baseOpts(), settingsPath: nested });
@@ -560,6 +569,15 @@ describe('uninstall', () => {
     expect(readFileSync(backupPath, 'utf8')).toBe('this is not valid JSON!!!');
     const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
     expect(data.statusLine).toBeUndefined();
+  });
+
+  it('treats an empty backup as corrupt and keeps it', () => {
+    const current = { statusLine: { type: 'command', command: 'lumira', padding: 0 } };
+    writeFileSync(settingsPath, JSON.stringify(current));
+    writeFileSync(backupPath, '');
+    const output = uninstall({ settingsPath });
+    expect(output).toContain('corrupt');
+    expect(existsSync(backupPath)).toBe(true);
   });
 
   it('reports a settings.json it cannot read as unreadable, not as invalid JSON', () => {

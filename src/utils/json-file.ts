@@ -51,7 +51,7 @@ export function writeTarget(path: string): string {
     try {
       closeSync(openSync(path, 'a', 0o600));
     } catch (e) {
-      throw new Error(`The target of the symlink ${path} could not be created (${(e as Error).message}). Create its directory or fix the link.`);
+      throw new Error(`The target of the symlink ${path} could not be created (${(e as Error).message}). Check the link and the directory it points into.`);
     }
     return realpathSync.native(path);
   }
