@@ -63,6 +63,26 @@ function writeSettingsAtomic(settings: Record<string, unknown>, settingsPath: st
   }
 }
 
+/**
+ * Read a settings/config file that must hold a JSON object. Anything else —
+ * a syntax error from a hand edit, `null`, an array — throws before a single
+ * byte is written: replacing it would silently drop the user's permissions,
+ * hooks and env.
+ */
+export function readSettingsObject(path: string): Record<string, unknown> {
+  let parsed: unknown;
+  let reason = '';
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (e) {
+    reason = ` (${(e as Error).message})`;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${path} is not a JSON object${reason}. Fix it and run the command again — nothing was changed.`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
 // Rank a statusLine command by per-render speed (higher = faster).
 //   3 = bare `lumira` binary — always resolves to the current installed version
 //   2 = node /path/dist/index.js or plugin-cache path — fast but version-pinned
@@ -280,20 +300,7 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
   // the replacement at the end.
   let settings: Record<string, unknown> = {};
 
-  if (existsSync(settingsPath)) {
-    try {
-      const parsed = JSON.parse(readFileSync(settingsPath, 'utf8'));
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        settings = parsed as Record<string, unknown>;
-      } else {
-        lines.push(warn('Could not parse existing settings.json, creating fresh'));
-        settings = {};
-      }
-    } catch {
-      lines.push(warn('Could not parse existing settings.json, creating fresh'));
-      settings = {};
-    }
-  }
+  if (existsSync(settingsPath)) settings = readSettingsObject(settingsPath);
 
   const hasForeignStatusLine = settings.statusLine && !isLumira(settings.statusLine);
   if (hasForeignStatusLine) {

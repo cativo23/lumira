@@ -192,11 +192,12 @@ describe('install', () => {
       ['malformed JSON', 'this is { not valid JSON!!'],
       ['JSON null', 'null'],
       ['a JSON array', '[1,2,3]'],
-    ])('recovers from %s and writes a fresh statusLine', async (_label, contents) => {
+    ])('refuses to touch a settings.json holding %s', async (_label, contents) => {
       writeFileSync(settingsPath, contents);
-      const output = await install(baseOpts());
-      expect(output).toContain('Could not parse');
-      expect(readCmd()).toBe('npx lumira');
+      await expect(install(baseOpts())).rejects.toThrow(/settings\.json.*not a JSON object.*nothing was changed/s);
+      expect(readFileSync(settingsPath, 'utf8')).toBe(contents);
+      expect(existsSync(configPath)).toBe(false);
+      expect(readdirSync(dir).filter(f => f.endsWith('.bak'))).toHaveLength(0);
     });
 
     it('creates parent directories that do not exist', async () => {
