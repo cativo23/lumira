@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync, rmdirSync, renameSync, openSync, writeSync, fsyncSync, closeSync, realpathSync } from 'node:fs';
+import { existsSync, copyFileSync, unlinkSync, mkdirSync, rmdirSync, renameSync, openSync, writeSync, fsyncSync, closeSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline';
 import { runWizard } from './installer-wizard.js';
 import { saveConfig, loadConfig } from './config.js';
 import { getBanner, getSubtitle } from './tui/banner.js';
+import { readJsonObject, writeTarget } from './utils/json-file.js';
 // ── ANSI helpers ────────────────────────────────────────────────────
 const RST = '\x1b[0m';
 const GREEN = '\x1b[32m';
@@ -45,10 +46,8 @@ function refreshIntervalChanged(current, desired) {
 }
 /** Atomically write settings.json: temp file + fsync + rename, mode 0600. */
 function writeSettingsAtomic(settings, settingsPath) {
-    mkdirSync(dirname(settingsPath), { recursive: true });
-    // Rename onto the link's target: renaming onto the link itself would
-    // replace a dotfiles symlink with a plain file.
-    const target = existsSync(settingsPath) ? realpathSync(settingsPath) : settingsPath;
+    const target = writeTarget(settingsPath);
+    mkdirSync(dirname(target), { recursive: true });
     const tmp = `${target}.${process.pid}.${Date.now()}.lumira.tmp`;
     try {
         const fd = openSync(tmp, 'wx', 0o600);
@@ -64,26 +63,6 @@ function writeSettingsAtomic(settings, settingsPath) {
         catch { }
         throw e;
     }
-}
-/**
- * Read a settings/config file that must hold a JSON object. Anything else —
- * a syntax error from a hand edit, `null`, an array — throws before a single
- * byte is written: replacing it would silently drop the user's permissions,
- * hooks and env.
- */
-export function readSettingsObject(path) {
-    let parsed;
-    let reason = '';
-    try {
-        parsed = JSON.parse(readFileSync(path, 'utf8'));
-    }
-    catch (e) {
-        reason = ` (${e.message})`;
-    }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error(`${path} is not a JSON object${reason}. Fix it and run the command again — nothing was changed.`);
-    }
-    return parsed;
 }
 // Rank a statusLine command by per-render speed (higher = faster).
 //   3 = bare `lumira` binary — always resolves to the current installed version
@@ -162,7 +141,13 @@ function isLumira(statusLine) {
 // ── Prompt helper ───────────────────────────────────────────────────
 export function promptYN(question, input = process.stdin, output = process.stdout) {
     const rl = createInterface({ input, output });
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+        // Ctrl+C cancels the whole install: answering "no" would carry on and
+        // write settings.json at the global-install or subagent prompts.
+        rl.once('SIGINT', () => {
+            reject(new Error('Cancelled — nothing was changed.'));
+            rl.close();
+        });
         // Without this, stdin closing before an answer (a piped or CI install)
         // leaves the promise pending and node exits 0 having done nothing.
         rl.once('close', () => resolve(false));
@@ -266,11 +251,11 @@ export async function install(opts = {}) {
     // the replacement at the end.
     let settings = {};
     if (existsSync(settingsPath))
-        settings = readSettingsObject(settingsPath);
+        settings = readJsonObject(settingsPath);
     // finalize() saves config.json after settings.json is already written —
     // check it can be saved now, so a broken config stops the install untouched.
     if (existsSync(configPath))
-        readSettingsObject(configPath);
+        readJsonObject(configPath);
     const hasForeignStatusLine = settings.statusLine && !isLumira(settings.statusLine);
     if (hasForeignStatusLine) {
         const rawCmd = settings.statusLine.command ?? 'unknown';
@@ -400,40 +385,45 @@ export function uninstall(opts = {}) {
         lines.push(ok('Nothing to uninstall — no settings.json found'));
         return lines.join('\n') + '\n';
     }
-    let uninstSettings;
-    try {
-        uninstSettings = readSettingsObject(settingsPath);
-    }
-    catch (e) {
-        lines.push(warn(`Could not parse settings.json — ${e.message}`));
-        return lines.join('\n') + '\n';
-    }
+    // Throws (exit 1 from the CLI) when settings.json is unreadable or not a
+    // JSON object — nothing is written and the backup stays for a retry.
+    const uninstSettings = readJsonObject(settingsPath);
     // The backup is the whole settings.json from before install, so restoring
     // the file would also undo every edit made since. Take only the keys
-    // lumira replaced.
+    // lumira replaced. A corrupt backup is kept: it still holds the previous
+    // statusline for the user to recover by hand.
     let backup;
     if (existsSync(backupPath)) {
         try {
-            backup = readSettingsObject(backupPath);
+            backup = readJsonObject(backupPath);
         }
         catch {
-            lines.push(warn('Backup file is corrupt — skipping restore'));
+            lines.push(warn(`Backup file is corrupt — skipping restore, kept at ${DIM}${backupPath}${RST}`));
         }
     }
+    let changed = false;
+    let restored = false;
     for (const key of ['statusLine', 'subagentStatusLine']) {
         if (!isLumira(uninstSettings[key]))
             continue;
-        if (backup?.[key] !== undefined)
+        changed = true;
+        if (backup?.[key] !== undefined) {
             uninstSettings[key] = backup[key];
-        else
+            restored = true;
+        }
+        else {
             delete uninstSettings[key];
+        }
     }
-    writeSettingsAtomic(uninstSettings, settingsPath);
-    try {
-        unlinkSync(backupPath);
+    if (changed) {
+        writeSettingsAtomic(uninstSettings, settingsPath);
+        if (backup)
+            unlinkSync(backupPath);
+        lines.push(ok(restored ? 'Restored previous statusline from backup' : 'Removed lumira statusline from settings'));
     }
-    catch { }
-    lines.push(ok(backup ? 'Restored previous statusline from backup' : 'Removed lumira statusline from settings'));
+    else {
+        lines.push(ok('lumira is not configured in settings.json — nothing to change'));
+    }
     // Remove skill from both destinations (best effort)
     for (const root of [join(home, '.claude'), join(home, '.qwen')]) {
         const skillFile = join(root, 'skills', 'lumira', 'SKILL.md');

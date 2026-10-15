@@ -822,7 +822,7 @@ describe('saveConfig', () => {
   ])('refuses to overwrite a config holding %s', (_label, contents) => {
     const p = join(dir, 'config.json');
     writeFileSync(p, contents);
-    expect(() => saveConfig({ preset: 'minimal', icons: 'emoji' }, p)).toThrow(/not a JSON object.*nothing was changed/);
+    expect(() => saveConfig({ preset: 'minimal', icons: 'emoji' }, p)).toThrow(/(not valid JSON|not a JSON object).*nothing was changed/);
     expect(readFileSync(p, 'utf8')).toBe(contents);
   });
 

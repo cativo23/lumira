@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, symlinkSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Readable, Writable } from 'node:stream';
+import { PassThrough, Readable, Writable } from 'node:stream';
 import { install, uninstall, commandSpeed, promptYN } from '../src/installer.js';
 import { createMockStdin, createMockStdout } from './tui/_mock-stdin.js';
 
@@ -28,6 +28,14 @@ describe('promptYN', () => {
 
   it('answers no when stdin closes without an answer', async () => {
     await expect(promptYN('Replace?', Readable.from([]), sink())).resolves.toBe(false);
+  });
+
+  it('cancels on Ctrl+C at a terminal instead of answering no', async () => {
+    const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {} });
+    const output = Object.assign(sink(), { isTTY: true, columns: 80 });
+    const answer = promptYN('Install globally?', input, output);
+    setImmediate(() => input.write('\x03'));
+    await expect(answer).rejects.toThrow(/cancelled/i);
   });
 
   it('still accepts a piped yes', async () => {
@@ -207,7 +215,7 @@ describe('install', () => {
       ['a JSON array', '[1,2,3]'],
     ])('refuses to touch a settings.json holding %s', async (_label, contents) => {
       writeFileSync(settingsPath, contents);
-      await expect(install(baseOpts())).rejects.toThrow(/settings\.json.*not a JSON object.*nothing was changed/s);
+      await expect(install(baseOpts())).rejects.toThrow(/settings\.json.*(not valid JSON|not a JSON object).*nothing was changed/s);
       expect(readFileSync(settingsPath, 'utf8')).toBe(contents);
       expect(existsSync(configPath)).toBe(false);
       expect(readdirSync(dir).filter(f => f.endsWith('.bak'))).toHaveLength(0);
@@ -217,7 +225,7 @@ describe('install', () => {
       const settings = JSON.stringify({ statusLine: { type: 'command', command: 'other-tool', padding: 0 } });
       writeFileSync(settingsPath, settings);
       writeFileSync(configPath, '{ "customWidgets": { ');
-      await expect(install(baseOpts())).rejects.toThrow(/config\.json.*not a JSON object/s);
+      await expect(install(baseOpts())).rejects.toThrow(/config\.json.*not valid JSON/s);
       expect(readFileSync(settingsPath, 'utf8')).toBe(settings);
       expect(readFileSync(configPath, 'utf8')).toBe('{ "customWidgets": { ');
       expect(existsSync(backupPath)).toBe(false);
@@ -228,6 +236,16 @@ describe('install', () => {
       mkdirSync(dotfiles);
       const target = join(dotfiles, 'settings.json');
       writeFileSync(target, JSON.stringify({ hooks: {} }));
+      symlinkSync(target, settingsPath);
+      await install(baseOpts());
+      expect(lstatSync(settingsPath).isSymbolicLink()).toBe(true);
+      expect(JSON.parse(readFileSync(target, 'utf8')).statusLine.command).toBe('npx lumira');
+    });
+
+    it('writes through a dangling settings.json symlink and keeps the link', async () => {
+      const dotfiles = join(dir, 'dotfiles');
+      mkdirSync(dotfiles);
+      const target = join(dotfiles, 'settings.json');
       symlinkSync(target, settingsPath);
       await install(baseOpts());
       expect(lstatSync(settingsPath).isSymbolicLink()).toBe(true);
@@ -452,10 +470,20 @@ describe('uninstall', () => {
     const backup = { statusLine: { type: 'command', command: 'old-tool', padding: 0 } };
     writeFileSync(backupPath, JSON.stringify(backup, null, 2));
     writeFileSync(settingsPath, '{ broken');
-    const output = uninstall({ settingsPath });
-    expect(output).toContain('Could not parse');
+    expect(() => uninstall({ settingsPath })).toThrow(/not valid JSON.*nothing was changed/s);
     expect(readFileSync(settingsPath, 'utf8')).toBe('{ broken');
     expect(existsSync(backupPath)).toBe(true);
+  });
+
+  it('says nothing changed, and does not rewrite the file, when lumira is not configured', () => {
+    const backup = { statusLine: { type: 'command', command: 'old-tool', padding: 0 } };
+    const contents = '{"statusLine":{"type":"command","command":"my-own-renderer"}}';
+    writeFileSync(backupPath, JSON.stringify(backup));
+    writeFileSync(settingsPath, contents);
+    const output = uninstall({ settingsPath });
+    expect(output).toContain('not configured');
+    expect(output).not.toContain('Restored');
+    expect(readFileSync(settingsPath, 'utf8')).toBe(contents);
   });
 
   it('leaves a foreign statusLine alone', () => {
@@ -466,10 +494,9 @@ describe('uninstall', () => {
     expect(data.statusLine.command).toBe('my-own-renderer');
   });
 
-  it('does not throw when settings.json holds JSON null', () => {
+  it('reports a settings.json holding JSON null as an error, without a TypeError', () => {
     writeFileSync(settingsPath, 'null');
-    const output = uninstall({ settingsPath });
-    expect(output).toContain('Could not parse');
+    expect(() => uninstall({ settingsPath })).toThrow(/is not a JSON object/);
     expect(readFileSync(settingsPath, 'utf8')).toBe('null');
   });
 
@@ -505,23 +532,21 @@ describe('uninstall', () => {
     expect(output).toContain('Nothing to uninstall');
   });
 
-  it('warns and skips restore when backup is corrupt', () => {
+  it('keeps a corrupt backup, so the previous statusline can still be recovered by hand', () => {
     const current = { statusLine: { type: 'command', command: 'npx lumira@latest', padding: 0 } };
     writeFileSync(settingsPath, JSON.stringify(current, null, 2));
     writeFileSync(backupPath, 'this is not valid JSON!!!');
     const output = uninstall({ settingsPath });
     expect(output).toContain('corrupt');
-    expect(existsSync(backupPath)).toBe(false);
-    // Should fall through to removing statusLine key
+    expect(output).toContain(backupPath);
+    expect(readFileSync(backupPath, 'utf8')).toBe('this is not valid JSON!!!');
     const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
     expect(data.statusLine).toBeUndefined();
   });
 
-  it('warns "Could not parse" (not "write") when settings.json is malformed during uninstall', () => {
-    writeFileSync(settingsPath, 'this is { not valid JSON!!');
-    const output = uninstall({ settingsPath });
-    expect(output).toContain('Could not parse');
-    expect(output).not.toContain('Could not write');
+  it('reports a settings.json it cannot read as unreadable, not as invalid JSON', () => {
+    mkdirSync(settingsPath);
+    expect(() => uninstall({ settingsPath })).toThrow(/could not be read/);
   });
 
   it('leaves no .lumira.tmp file after successful uninstall', () => {

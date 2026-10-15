@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, writeFileSync, renameSync, mkdirSync, realpathSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import {
@@ -29,6 +29,7 @@ import {
 } from './types.js';
 import { stripAnsi } from './render/colors.js';
 import { toSingleLine } from './utils/format.js';
+import { readJsonObject, writeTarget } from './utils/json-file.js';
 
 /**
  * Ids we refuse to accept on user-supplied custom commands. Object.prototype
@@ -536,31 +537,17 @@ export interface WizardResult {
 }
 
 export function saveConfig(wizard: WizardResult, configPath: string): void {
-  mkdirSync(dirname(configPath), { recursive: true });
-
   // A config that does not parse still holds the user's widgets and display
-  // toggles — refuse rather than replace it with the three wizard keys.
-  let existing: Record<string, unknown> = {};
-  if (existsSync(configPath)) {
-    let parsed: unknown;
-    let reason = '';
-    try {
-      parsed = JSON.parse(readFileSync(configPath, 'utf8'));
-    } catch (e) {
-      reason = ` (${(e as Error).message})`;
-    }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error(`${configPath} is not a JSON object${reason}. Fix it and run the command again — nothing was changed.`);
-    }
-    existing = parsed as Record<string, unknown>;
-  }
+  // toggles — readJsonObject refuses rather than let it be replaced with the
+  // three wizard keys.
+  const existing = existsSync(configPath) ? readJsonObject(configPath) : {};
 
   const merged: Record<string, unknown> = { ...existing, preset: wizard.preset, icons: wizard.icons };
   if (wizard.theme !== undefined) merged.theme = wizard.theme;
   else delete merged.theme;
 
-  // Rename onto the link's target so a symlinked config.json stays a link.
-  const target = existsSync(configPath) ? realpathSync(configPath) : configPath;
+  const target = writeTarget(configPath);
+  mkdirSync(dirname(target), { recursive: true });
   const tmp = target + '.tmp';
   writeFileSync(tmp, JSON.stringify(merged, null, 2) + '\n', { mode: 0o600 });
   renameSync(tmp, target);
