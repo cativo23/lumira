@@ -38,7 +38,7 @@ describe('parseGitStatus', () => {
   it('counts an unstaged change as modified when it is the first status line of a real repo', async () => {
     const repo = mkdtempSync(join(tmpdir(), 'lumira-git-'));
     try {
-      const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: repo });
+      const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: repo });
       git('init', '-q');
       writeFileSync(join(repo, 'a.ts'), 'a\n');
       git('add', 'a.ts');
