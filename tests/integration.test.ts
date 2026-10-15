@@ -17,6 +17,7 @@ describe('main', () => {
       getGsdInfo: () => null,
       getMcpInfo: () => null,
       getTermCols: () => 120,
+      loadConfig: () => ({ ...DEFAULT_CONFIG, display: { ...DEFAULT_DISPLAY } }),
     });
     const plain = stripAnsi(output);
     expect(plain).toContain('Opus 4.6');
@@ -70,6 +71,7 @@ describe('main', () => {
       getGsdInfo: () => null,
       getMcpInfo: () => null,
       getTermCols: () => 60,
+      loadConfig: () => ({ ...DEFAULT_CONFIG, display: { ...DEFAULT_DISPLAY } }),
     });
     // auto layout at <70 cols should produce at most 2 lines
     expect(output.split('\n').length).toBeLessThanOrEqual(2);
@@ -87,6 +89,7 @@ describe('main', () => {
       getGsdInfo: () => null,
       getMcpInfo: () => null,
       getTermCols: () => 120,
+      loadConfig: () => ({ ...DEFAULT_CONFIG, display: { ...DEFAULT_DISPLAY } }),
     });
     const plain = stripAnsi(output);
     expect(plain).toContain('project'); // workspace.current_dir basename rendered in fallback path
