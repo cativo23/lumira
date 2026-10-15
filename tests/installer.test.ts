@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { install, uninstall, commandSpeed } from '../src/installer.js';
+import { Readable, Writable } from 'node:stream';
+import { install, uninstall, commandSpeed, promptYN } from '../src/installer.js';
 import { createMockStdin, createMockStdout } from './tui/_mock-stdin.js';
 
 describe('commandSpeed', () => {
@@ -19,6 +20,18 @@ describe('commandSpeed', () => {
     ['lumira', 3],   // bare binary — always resolves to current installed version
   ])('ranks %j as speed %i', (cmd, rank) => {
     expect(commandSpeed(cmd as string)).toBe(rank);
+  });
+});
+
+describe('promptYN', () => {
+  const sink = () => new Writable({ write(_c, _e, cb) { cb(); } });
+
+  it('answers no when stdin closes without an answer', async () => {
+    await expect(promptYN('Replace?', Readable.from([]), sink())).resolves.toBe(false);
+  });
+
+  it('still accepts a piped yes', async () => {
+    await expect(promptYN('Replace?', Readable.from(['y\n']), sink())).resolves.toBe(true);
   });
 });
 

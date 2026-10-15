@@ -185,12 +185,19 @@ function isLumira(statusLine: unknown): boolean {
 }
 
 // ── Prompt helper ───────────────────────────────────────────────────
-export function promptYN(question: string): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+export function promptYN(
+  question: string,
+  input: NodeJS.ReadableStream = process.stdin,
+  output: NodeJS.WritableStream = process.stdout,
+): Promise<boolean> {
+  const rl = createInterface({ input, output });
   return new Promise((resolve) => {
+    // Without this, stdin closing before an answer (a piped or CI install)
+    // leaves the promise pending and node exits 0 having done nothing.
+    rl.once('close', () => resolve(false));
     rl.question(`${question} (y/N) `, (answer) => {
-      rl.close();
       resolve(answer.trim().toLowerCase() === 'y');
+      rl.close();
     });
   });
 }
