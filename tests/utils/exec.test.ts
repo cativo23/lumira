@@ -2,9 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { safeExec } from '../../src/utils/exec.js';
 
 describe('safeExec', () => {
-  it('returns trimmed stdout on success', async () => {
+  it('returns stdout without the trailing newline on success', async () => {
     const result = await safeExec('echo', ['hello world']);
     expect(result).toBe('hello world');
+  });
+  it('keeps leading whitespace that is part of the output', async () => {
+    const result = await safeExec('printf', [' M a.ts\n?? b.ts\n']);
+    expect(result).toBe(' M a.ts\n?? b.ts');
   });
   it('returns empty string on command failure', async () => {
     const result = await safeExec('false', []);

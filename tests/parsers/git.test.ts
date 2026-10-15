@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { parseGitStatus } from '../../src/parsers/git.js';
 import { EMPTY_GIT } from '../../src/types.js';
 import * as cacheUtils from '../../src/utils/cache.js';
@@ -29,6 +33,24 @@ describe('parseGitStatus', () => {
     expect(result.staged).toBe(3);
     expect(result.modified).toBe(2);
     expect(result.untracked).toBe(1);
+  });
+
+  it('counts an unstaged change as modified when it is the first status line of a real repo', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'lumira-git-'));
+    try {
+      const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: repo });
+      git('init', '-q');
+      writeFileSync(join(repo, 'a.ts'), 'a\n');
+      git('add', 'a.ts');
+      git('commit', '-qm', 'init');
+      appendFileSync(join(repo, 'a.ts'), 'b\n');
+
+      const result = await parseGitStatus(repo);
+      expect(result.staged).toBe(0);
+      expect(result.modified).toBe(1);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it('returns empty on empty branch', async () => {
