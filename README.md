@@ -117,7 +117,7 @@ See [`docs/competitive-comparison.md`](docs/competitive-comparison.md) for the f
 - **Pace delta** — `usedPct − elapsedPct` of the 5h window. Turtle when behind pace (healthy), car with time-to-exhaustion when ahead. Color escalates green → yellow → orange → blinkRed. Toggle independently via `display.paceDelta`.
 - **7d quota projection** — when the current burn rate would exhaust the 7d quota before the window resets, the 7d segment grows a warning: `⚠ ~24h`, `⚠ ~2d`, `⚠ Tue`, or `🔥 ~8h` (critical icon under 12h). Default on. Toggle via `display.quotaProjection`; off in the `minimal` preset. Different from pace delta — pace looks backwards at the 5h window's actual vs proportional burn, projection looks forwards at the 7d window's exhaustion ETA.
 - **Active agents** — live count of running subagents (`⚡N agents`) plus types parsed from the transcript. Toggle via `display.agents`.
-- **Subagent panel rows** — custom rendering for each row in Claude Code's agent panel via [`lumira subagent`](#subagent-rows): a state glyph (running / done / error), what each agent is doing, and its token count, in your configured theme and icon set. Opt-in at install.
+- **Subagent panel rows** — custom rendering for each row in Claude Code's agent panel via [`lumira subagent`](#subagent-rows): a state glyph (running / done / error / killed), the agent type and model as aligned columns, what each agent is doing, and its token count, in your configured theme and icon set. Opt-in at install.
 - **Cache hit rate** — prompt cache efficiency for the current turn (`87%⚡`). Alarm-mode: hidden while ≥90% (Anthropic's prompt cache pins this near 99% in healthy steady state, so an always-on number is wallpaper, not signal). Surfaces as yellow/orange/blinkRed only when the cache is actually degrading. Same hide-when-healthy pattern as rate-limits and agent count.
 - **Prompt cache badge** — warns before your prompt cache goes cold (`❄ 8m · 103k`), once it has (`❄ cold · 103k`), and right after a cache miss (`miss ×2 · 203k · model changed`). Hidden while the cache is healthy. See [Prompt cache badge](#prompt-cache-badge) for how to read it. Toggle: `display.promptCache`.
 - **GSD integration** — current task and update notifications (opt-in).
@@ -290,13 +290,23 @@ lumira stats
 Claude Code (≥ 2.1.x) exposes a [`subagentStatusLine`](https://code.claude.com/docs/en/statusline#subagent-status-lines) hook that lets a command customize how each subagent renders in the agent panel — replacing the default `name · description · token count` row. `lumira subagent` reads the visible tasks from stdin and renders each row in your configured theme and icon set:
 
 ```
-󱎫 reviewing auth module · 15k tok · running
-✓ exploring the codebase · 3k tok · done
+󱎫 Explore          haiku   reviewing auth module · 15k tok · running
+✓ general-purpose  sonnet  exploring the codebase · 3k tok · done
 ```
 
-The **glyph and colour are driven by state** — running (cyan clock), done (green check), error (red warning) — so a glance tells you what's live, what finished, what failed.
+Reading a row, left to right:
 
-The **row label** identifies each agent. In practice Claude Code reports every Task subagent with the generic `type: "local_agent"` and no `name`, so the per-agent `description` is the only field that distinguishes one row from another — lumira uses it. The full fallback is `name → a meaningful type → description → id`: an explicit `name` or a real agent type wins when Claude Code provides one, otherwise the `description` carries the row. Rows respect your `icons` (`nerd`/`emoji`/`none`) and `colors.mode` config, and are truncated to the width Claude Code budgets.
+| Part | Example | Meaning |
+|---|---|---|
+| Glyph | `󱎫` / `✓` / `⚠` / `—` | State: running (cyan), done (green), error (red), killed — stopped by you, not a failure (yellow) |
+| Agent type | `Explore`, `general-purpose`, `code-reviewer` | Which kind of subagent it is — built-in or one of your custom agents. Claude Code's own row shows this too; lumira keeps it so replacing the row doesn't lose it. Names longer than 28 columns are cut |
+| Model | `haiku`, `sonnet`, `opus` | The model family the subagent runs on (dim). Claude Code's default row doesn't show it — handy when you mix models across agents |
+| Description | `reviewing auth module` | What the agent was asked to do |
+| Tokens · state | `15k tok · running` | Its running token count and state in words |
+
+The type and model line up as columns across all visible rows, so parallel agents are easy to tell apart. Both need Claude Code ≥ 2.1.293: on older versions the columns are left out and rows look exactly as before, and a row that lacks one (say, a model Claude Code hasn't resolved yet) leaves that cell blank. Only `claude-…` model ids have a family to show. When rows don't fit, the descriptions are shortened first, then the model column is dropped, then the type column is narrowed — decided once for all rows so they stay aligned, and the state glyph and label always stay.
+
+The **description** column falls back through `name → a meaningful type → description → id`: Claude Code reports every Task subagent with the generic `type: "local_agent"` and no `name`, so in practice it's the `description`. Rows respect your `icons` (`nerd`/`emoji`/`none`) and `colors.mode` config, and text from the payload is stripped of terminal control characters before it's drawn.
 
 **Enable it:** the installer offers to register `subagentStatusLine` alongside the main statusline (opt-in — it never writes the second key without asking). To wire it manually, add to `~/.claude/settings.json`:
 

@@ -18,6 +18,7 @@ import { Readable } from 'node:stream';
 import {
   renderSubagentContent,
   renderSubagentTasks,
+  modelFamily,
   runSubagentCommand,
 } from '../../src/commands/subagent.js';
 import { NERD_ICONS, EMOJI_ICONS, NO_ICONS } from '../../src/render/icons.js';
@@ -117,6 +118,121 @@ describe('renderSubagentContent', () => {
     const out = renderSubagentContent(task({ status: 'completed' }), EMOJI_ICONS, colors);
     expect(out).toContain(EMOJI_ICONS.checkmark);
   });
+
+  it('renders a failed task like an error', () => {
+    const out = renderSubagentContent(task({ status: 'failed' }), NERD_ICONS, colors);
+    expect(stripAnsi(out)).toContain('error');
+    expect(out).toContain(NERD_ICONS.warning);
+  });
+
+  it('renders a killed task as stopped, not as a failure', () => {
+    const out = renderSubagentContent(task({ status: 'killed' }), NERD_ICONS, colors);
+    expect(stripAnsi(out)).toContain('killed');
+    expect(out).toContain(NERD_ICONS.dash);
+    expect(out).not.toContain(NERD_ICONS.warning);
+    expect(out).toContain(colors.yellow('killed'));
+  });
+
+  describe('agent type and model columns', () => {
+    // Shape of a real CC 2.1.294 task (captured): type is always local_agent,
+    // agentType carries the real kind, model is the full resolved id.
+    const real = (over: Partial<SubagentTask> = {}): SubagentTask => ({
+      id: 'a8818445eb7e50e79',
+      type: 'local_agent',
+      agentType: 'Explore',
+      status: 'running',
+      description: 'List render module files',
+      label: 'List render module files',
+      model: 'claude-haiku-5-5',
+      tokenCount: 26413,
+      ...over,
+    });
+
+    it('shows the agent type and model family before the description', () => {
+      expect(stripAnsi(renderSubagentContent(real(), NO_ICONS, colors)))
+        .toBe('Explore  haiku  List render module files · 26k tok · running');
+    });
+
+    it('dims the model family', () => {
+      expect(renderSubagentContent(real(), NO_ICONS, colors)).toContain(colors.dim('haiku'));
+    });
+
+    it('omits the model when the id is not a claude-<family>-… id', () => {
+      expect(stripAnsi(renderSubagentContent(real({ model: 'qwen3-coder' }), NO_ICONS, colors)))
+        .toBe('Explore  List render module files · 26k tok · running');
+      expect(stripAnsi(renderSubagentContent(real({ model: undefined }), NO_ICONS, colors)))
+        .toBe('Explore  List render module files · 26k tok · running');
+    });
+
+    it('keeps typical custom agent names whole', () => {
+      const out = stripAnsi(renderSubagentContent(
+        real({ agentType: 'cccv-pr-reviewer-frontend', model: undefined }), NO_ICONS, colors));
+      expect(out.startsWith('cccv-pr-reviewer-frontend  ')).toBe(true);
+    });
+
+    it('caps a long custom agent type at 28 columns', () => {
+      const out = stripAnsi(renderSubagentContent(
+        real({ agentType: 'an-extremely-long-custom-agent-type', model: undefined }), NO_ICONS, colors));
+      const typeCell = out.split('  ')[0];
+      expect(displayWidth(typeCell)).toBe(28);
+      expect(typeCell.endsWith('…')).toBe(true);
+    });
+
+    it('truncates the description first, then drops the model, then shortens the type', () => {
+      const row = (cols: number) => stripAnsi(renderSubagentContent(real(), NO_ICONS, colors, cols));
+      // glyph-less "Explore  haiku  " = 16, meta " · 26k tok · running" = 20
+      expect(row(60)).toBe('Explore  haiku  List render module files · 26k tok · running');
+      expect(row(46)).toBe('Explore  haiku  List rend… · 26k tok · running');
+      expect(row(37)).toBe('Explore  List re… · 26k tok · running');
+      expect(row(30)).toBe('Explore · 26k tok · running');
+      expect(row(25)).toBe('Expl… · 26k tok · running');
+    });
+
+    it('strips control characters from agent type, model and description', () => {
+      const evil = renderSubagentContent(real({
+        agentType: 'Exp\x1b[31mlore',
+        model: 'claude-hai\x07ku-5-5',
+        description: 'evil\x1b]8;;http://x\x07 row',
+      }), NO_ICONS, colors);
+      const clean = renderSubagentContent(real({
+        agentType: 'Exp[31mlore',
+        model: 'claude-haiku-5-5',
+        description: 'evil]8;;http://x row',
+      }), NO_ICONS, colors);
+      expect(evil).toBe(clean);
+      expect(evil).not.toContain('\x07');
+    });
+
+    it('strips control characters from an unknown status before showing it', () => {
+      const out = renderSubagentContent(real({ status: 'pend\x1b[2J\x07ing' }), NO_ICONS, colors);
+      expect(out).toBe(renderSubagentContent(real({ status: 'pend[2Jing' }), NO_ICONS, colors));
+      expect(stripAnsi(renderSubagentContent(real({ status: { a: 1 } as unknown as string }), NO_ICONS, colors)))
+        .not.toContain('object');
+    });
+
+    it('reads the family from older claude model ids too', () => {
+      expect(modelFamily('claude-3-5-haiku-20241022')).toBe('haiku');
+      expect(modelFamily('claude-opus-5-5')).toBe('opus');
+      expect(modelFamily('claude-sonnet-4-6[1m]')).toBe('sonnet');
+      expect(modelFamily('gpt-5')).toBe('');
+    });
+
+    it('ignores model ids whose family is not a short dash-delimited word', () => {
+      expect(modelFamily('claude-haikuX')).toBe('');
+      expect(modelFamily('claude-' + 'a'.repeat(200))).toBe('');
+      expect(modelFamily('claude-opus')).toBe('opus');
+    });
+
+    it('does not throw when a caller passes a glyph width narrower than the glyph', () => {
+      const out = renderSubagentContent(real({ status: 'completed' }), EMOJI_ICONS, colors, undefined, { type: 7, model: 0, glyph: 1 });
+      expect(stripAnsi(out)).toBe(`${EMOJI_ICONS.checkmark} Explore  List render module files · 26k tok · done`);
+    });
+
+    it('survives non-string fields from an untrusted payload', () => {
+      const bad = real({ agentType: 42 as unknown as string, model: {} as unknown as string, description: 7 as unknown as string });
+      expect(stripAnsi(renderSubagentContent(bad, NO_ICONS, colors))).toBe('a8818445eb7e50e79 · 26k tok · running');
+    });
+  });
 });
 
 describe('renderSubagentTasks', () => {
@@ -139,6 +255,97 @@ describe('renderSubagentTasks', () => {
     const out = renderSubagentTasks(input, NO_ICONS, colors);
     expect(out.split('\n')).toHaveLength(1);
     expect(JSON.parse(out).id).toBe('ok');
+  });
+
+  it('aligns the type and model columns across rows, like CC does', () => {
+    const input: SubagentInput = {
+      tasks: [
+        { id: 'a', agentType: 'Explore', model: 'claude-haiku-5-5', status: 'running', description: 'Slow walk of the test suite', tokenCount: 21000 },
+        { id: 'b', agentType: 'general-purpose', model: 'claude-sonnet-5-5', status: 'running', description: 'Slow walk of the source tree', tokenCount: 43000 },
+      ],
+    };
+    const rows = renderSubagentTasks(input, NO_ICONS, colors).split('\n').map(l => stripAnsi(JSON.parse(l).content));
+    expect(rows).toEqual([
+      'Explore          haiku   Slow walk of the test suite · 21k tok · running',
+      'general-purpose  sonnet  Slow walk of the source tree · 43k tok · running',
+    ]);
+  });
+
+  it('keeps the column aligned for a row that has no agent type', () => {
+    const input: SubagentInput = {
+      tasks: [
+        { id: 'a', agentType: 'Explore', status: 'running', description: 'one', tokenCount: 1000 },
+        { id: 'b', status: 'running', description: 'two', tokenCount: 1000 },
+      ],
+    };
+    const rows = renderSubagentTasks(input, NO_ICONS, colors).split('\n').map(l => stripAnsi(JSON.parse(l).content));
+    expect(rows).toEqual([
+      'Explore  one · 1k tok · running',
+      '         two · 1k tok · running',
+    ]);
+  });
+
+  it('renders byte-identical to v1.19.0 when CC sends no agent type or model (CC < 2.1.293)', () => {
+    // Expected strings captured from a build of main before this feature.
+    const I = NERD_ICONS;
+    const input: SubagentInput = {
+      columns: 40,
+      tasks: [
+        { id: 'a', status: 'running', description: 'reviewing the auth module carefully', tokenCount: 126000 },
+        { id: 'b', status: 'completed', description: 'exploring', tokenCount: 1000 },
+        { id: 'c', status: 'failed', name: 'code-reviewer' },
+      ],
+    };
+    const rows = renderSubagentTasks(input, I, colors).split('\n').map(l => JSON.parse(l).content);
+    expect(rows).toEqual([
+      `\x1b[36m${I.clock}\x1b[0m reviewing the au… · \x1b[2m126k tok\x1b[0m · \x1b[36mrunning\x1b[0m`,
+      `\x1b[32m${I.checkmark}\x1b[0m exploring · \x1b[2m1k tok\x1b[0m · \x1b[32mdone\x1b[0m`,
+      `\x1b[31m${I.warning}\x1b[0m code-reviewer · \x1b[31merror\x1b[0m`,
+    ]);
+  });
+
+  it('aligns the columns when state glyphs have different widths', () => {
+    // none icons: running has no glyph, done is ✓ and killed is —.
+    const input: SubagentInput = {
+      tasks: [
+        { id: 'a', agentType: 'Explore', status: 'running', description: 'one' },
+        { id: 'b', agentType: 'Explore', status: 'completed', description: 'two' },
+        { id: 'c', agentType: 'Explore', status: 'pending', description: 'three' },
+      ],
+    };
+    const render = (icons: typeof NO_ICONS) =>
+      renderSubagentTasks(input, icons, colors).split('\n').map(l => stripAnsi(JSON.parse(l).content));
+    // ✓ is a one-cell glyph in terminals even though displayWidth counts it as two.
+    expect(render(NO_ICONS)).toEqual([
+      '  Explore  one · running',
+      '✓ Explore  two · done',
+      '  Explore  three · pending',
+    ]);
+    expect(render(NERD_ICONS)).toEqual([
+      `${NERD_ICONS.clock} Explore  one · running`,
+      '✓ Explore  two · done',
+      '  Explore  three · pending',
+    ]);
+    expect(render(EMOJI_ICONS)).toEqual([
+      `${EMOJI_ICONS.clock} Explore  one · running`,
+      `${EMOJI_ICONS.checkmark} Explore  two · done`,
+      '   Explore  three · pending',
+    ]);
+  });
+
+  it('keeps the columns aligned on narrow rows whose meta differs in width', () => {
+    const input: SubagentInput = {
+      columns: 40,
+      tasks: [
+        { id: 'a', agentType: 'Explore', model: 'claude-haiku-5-5', status: 'running', description: 'List render module files', tokenCount: 126000 },
+        { id: 'b', agentType: 'Explore', model: 'claude-haiku-5-5', status: 'completed', description: 'List render module files', tokenCount: 1000 },
+      ],
+    };
+    const rows = renderSubagentTasks(input, NERD_ICONS, colors).split('\n').map(l => stripAnsi(JSON.parse(l).content));
+    expect(rows).toEqual([
+      `${NERD_ICONS.clock} Explore  List re… · 126k tok · running`,
+      '✓ Explore  List render … · 1k tok · done',
+    ]);
   });
 
   it('returns an empty string for an empty or missing task list', () => {
