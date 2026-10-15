@@ -1,5 +1,4 @@
-import { readFileSync, readlinkSync, realpathSync, lstatSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { closeSync, lstatSync, openSync, readFileSync, realpathSync } from 'node:fs';
 /**
  * Read a user-owned settings/config file that must hold a JSON object.
  * Anything else throws before a single byte is written: replacing a file
@@ -26,14 +25,6 @@ export function readJsonObject(path) {
     }
     return parsed;
 }
-function realDir(dir) {
-    try {
-        return realpathSync(dir);
-    }
-    catch {
-        return dir;
-    }
-}
 /**
  * The path an atomic temp-file + rename should land on. Renaming onto a
  * symlink replaces the link with a plain file (detaching a dotfiles-managed
@@ -49,24 +40,16 @@ export function writeTarget(path) {
         return path;
     }
     try {
-        return realpathSync(path);
+        return realpathSync.native(path);
     }
     catch {
-        // Dangling: walk the chain by hand to the first path that isn't a link.
-        let current = path;
-        for (let hops = 0; hops < 40; hops++) {
-            try {
-                if (!lstatSync(current).isSymbolicLink())
-                    return current;
-            }
-            catch {
-                return current;
-            }
-            // Resolve against the link's real directory: the OS applies `..` after
-            // following any directory symlink earlier in the path, not textually.
-            current = resolve(realDir(dirname(current)), readlinkSync(current));
-        }
-        throw new Error(`${path}: too many levels of symbolic links`);
+        // Dangling: let the OS resolve the chain (it applies `..` after following
+        // directory links, which is easy to get wrong by hand) by creating the
+        // missing target through the link, then ask for its real path. A missing
+        // directory or a loop throws here, exactly as the write would. The native
+        // realpath is required: the JS one also applies `..` textually.
+        closeSync(openSync(path, 'a', 0o600));
+        return realpathSync.native(path);
     }
 }
 //# sourceMappingURL=json-file.js.map

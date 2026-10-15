@@ -37,9 +37,26 @@ describe('writeTarget', () => {
     expect(writeTarget(join(dir, 'home', 'settings.json'))).toBe(join(realpathSync(dir), 'real', 'b.json'));
   });
 
+  it('resolves .. inside a dangling link target after following a directory link', () => {
+    mkdirSync(join(dir, 'home'));
+    mkdirSync(join(dir, 'real', 'sub'), { recursive: true });
+    symlinkSync('../real/sub', join(dir, 'home', 'linkdir'));
+    symlinkSync('linkdir/../b.json', join(dir, 'home', 'settings.json'));
+    expect(writeTarget(join(dir, 'home', 'settings.json'))).toBe(join(realpathSync(dir), 'real', 'b.json'));
+  });
+
+  it('resolves .. inside an existing link target after following a directory link', () => {
+    mkdirSync(join(dir, 'home'));
+    mkdirSync(join(dir, 'real', 'sub'), { recursive: true });
+    writeFileSync(join(dir, 'real', 'b.json'), '{}');
+    symlinkSync('../real/sub', join(dir, 'home', 'linkdir'));
+    symlinkSync('linkdir/../b.json', join(dir, 'home', 'settings.json'));
+    expect(writeTarget(join(dir, 'home', 'settings.json'))).toBe(join(realpathSync(dir), 'real', 'b.json'));
+  });
+
   it('refuses a symlink loop', () => {
     symlinkSync('y.json', join(dir, 'x.json'));
     symlinkSync('x.json', join(dir, 'y.json'));
-    expect(() => writeTarget(join(dir, 'x.json'))).toThrow(/too many levels/);
+    expect(() => writeTarget(join(dir, 'x.json'))).toThrow(/ELOOP/);
   });
 });
