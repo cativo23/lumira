@@ -41,6 +41,16 @@ export function writeTarget(path: string): string {
   try {
     return realpathSync(path);
   } catch {
-    return resolve(dirname(path), readlinkSync(path));
+    // Dangling: walk the chain by hand to the first path that isn't a link.
+    let current = path;
+    for (let hops = 0; hops < 40; hops++) {
+      try {
+        if (!lstatSync(current).isSymbolicLink()) return current;
+      } catch {
+        return current;
+      }
+      current = resolve(dirname(current), readlinkSync(current));
+    }
+    throw new Error(`${path}: too many levels of symbolic links`);
   }
 }

@@ -1,0 +1,36 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { writeTarget } from '../../src/utils/json-file.js';
+
+describe('writeTarget', () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'lumira-json-file-')); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it('returns a plain or missing path unchanged', () => {
+    const plain = join(dir, 'plain.json');
+    writeFileSync(plain, '{}');
+    expect(writeTarget(plain)).toBe(plain);
+    expect(writeTarget(join(dir, 'missing.json'))).toBe(join(dir, 'missing.json'));
+  });
+
+  it('follows a relative link', () => {
+    writeFileSync(join(dir, 'real.json'), '{}');
+    symlinkSync('real.json', join(dir, 'link.json'));
+    expect(writeTarget(join(dir, 'link.json'))).toBe(join(dir, 'real.json'));
+  });
+
+  it('follows a chain of dangling links to its final target', () => {
+    symlinkSync('a.json', join(dir, 'settings.json'));
+    symlinkSync('b.json', join(dir, 'a.json'));
+    expect(writeTarget(join(dir, 'settings.json'))).toBe(join(dir, 'b.json'));
+  });
+
+  it('refuses a symlink loop', () => {
+    symlinkSync('y.json', join(dir, 'x.json'));
+    symlinkSync('x.json', join(dir, 'y.json'));
+    expect(() => writeTarget(join(dir, 'x.json'))).toThrow(/too many levels/);
+  });
+});
