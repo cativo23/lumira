@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.1] - 2026-10-15
+
 ### Fixed
 
 - **Git change counts when the first change is unstaged.** If the first line of `git status` was an unstaged edit (` M file`), lumira counted it as staged and showed one modified file fewer — in a repo whose only change was an unstaged edit, the statusline read 1 staged, 0 modified. The command output lost its leading space before parsing; now only the trailing newline is removed.
@@ -712,7 +714,8 @@ First stable release. API is now considered stable under SemVer.
 - GSD session IDs sanitized against path traversal
 - `execFile` used instead of `exec` to prevent shell injection (except terminal width detection where shell redirect is required with procfs-sourced paths)
 
-[Unreleased]: https://github.com/cativo23/lumira/compare/v1.20.0...HEAD
+[Unreleased]: https://github.com/cativo23/lumira/compare/v1.20.1...HEAD
+[1.20.1]: https://github.com/cativo23/lumira/compare/v1.20.0...v1.20.1
 [1.20.0]: https://github.com/cativo23/lumira/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/cativo23/lumira/compare/v1.18.1...v1.19.0
 [1.18.1]: https://github.com/cativo23/lumira/compare/v1.18.0...v1.18.1
