@@ -52,6 +52,7 @@ Interactive wizard — preset, theme, icons — previewed live before write.
 - [Themes](#themes)
 - [Stats CLI](#stats-cli)
 - [Subagent rows](#subagent-rows)
+- [Prompt cache badge](#prompt-cache-badge)
 - [Powerline](#powerline)
 - [Configuration](#configuration)
 - [Custom Widgets](#custom-widgets)
@@ -118,7 +119,7 @@ See [`docs/competitive-comparison.md`](docs/competitive-comparison.md) for the f
 - **Active agents** — live count of running subagents (`⚡N agents`) plus types parsed from the transcript. Toggle via `display.agents`.
 - **Subagent panel rows** — custom rendering for each row in Claude Code's agent panel via [`lumira subagent`](#subagent-rows): a state glyph (running / done / error), what each agent is doing, and its token count, in your configured theme and icon set. Opt-in at install.
 - **Cache hit rate** — prompt cache efficiency for the current turn (`87%⚡`). Alarm-mode: hidden while ≥90% (Anthropic's prompt cache pins this near 99% in healthy steady state, so an always-on number is wallpaper, not signal). Surfaces as yellow/orange/blinkRed only when the cache is actually degrading. Same hide-when-healthy pattern as rate-limits and agent count.
-- **Prompt cache badge** — from CC's `prompt_cache` data, shown only when it's actionable: `❄ 8m · 103k` as the cache nears expiry (with the tokens you'd re-pay if it goes cold), `❄ cold · 103k` once it has, and `miss ×2 · 203k · model changed` right after a miss (`❄` is the nerd snowflake; emoji mode uses 🧊). The minute countdown needs `refreshInterval` ≤ 60 set in lumira's own config and then `lumira install` re-run so CC actually runs the timer (see [Manual setup](#manual-setup)) — lumira can't see a value added only to `settings.json` — otherwise the badge shows the expiry clock time (`❄ 14:26`) so it never displays a frozen countdown. Toggle: `display.promptCache`.
+- **Prompt cache badge** — warns before your prompt cache goes cold (`❄ 8m · 103k`), once it has (`❄ cold · 103k`), and right after a cache miss (`miss ×2 · 203k · model changed`). Hidden while the cache is healthy. See [Prompt cache badge](#prompt-cache-badge) for how to read it. Toggle: `display.promptCache`.
 - **GSD integration** — current task and update notifications (opt-in).
 - **Config health widget** — surfaces silent fallbacks (theme/powerline degrading in named-ANSI, missing GSD STATE.md). Opt-in.
 - **Memory usage** — process RSS percentage.
@@ -306,6 +307,38 @@ The **row label** identifies each agent. In practice Claude Code reports every T
 ```
 
 It's robust by design: on any unreadable or malformed payload it emits nothing and exits 0, so Claude Code falls back to its default rows — a bad render never breaks the panel. Set `LUMIRA_DEBUG=1` to log the raw payload Claude Code sends to stderr.
+
+## Prompt cache badge
+
+Claude Code caches your conversation's prompt between requests. While the cache is warm, each message reads that context back cheaply; once it expires, the next message has to process and write the whole context again, which costs noticeably more. The cache lives for a fixed TTL (5 minutes or 1 hour — Claude Code reports which) and every message resets the clock — so it only goes cold when you step away.
+
+Claude Code (≥ 2.1.251) reports the cache state to the statusline, and lumira turns it into a badge on line 2. It stays **hidden while the cache is healthy** and appears only when there's something to act on:
+
+| State | When it appears | Example | What it means |
+|---|---|---|---|
+| **Expiring** (yellow) | Last 10 minutes of a 1h TTL, or the last minute of a 5m one | `❄ 8m · 103k` | The cache goes cold in 8 minutes. If it does, your next message re-caches 103k tokens. |
+| **Cold** (cyan) | The TTL has passed with no new message | `❄ cold · 103k` | The cache is gone. Your next message pays to re-cache 103k tokens. |
+| **Miss** (orange) | For 5 minutes after a cache miss | `miss ×2 · 203k · model changed` | A request just missed the cache. See below. |
+
+`❄` stands for the Nerd Font snowflake; emoji mode shows 🧊 and `icons: "none"` shows `cache`. When more than one state applies, cold wins over expiring, and both win over a recent miss — they're the ones still worth acting on.
+
+**Reading a miss.** The count and the token figure are **totals for the whole session**, not for the last miss alone. `miss ×6 · 680k · idle >1h` means this session has missed the cache six times and re-cached 680k tokens across all of them — roughly 113k each. Only the cause describes the **most recent** miss:
+
+| Cause | Meaning |
+|---|---|
+| `idle >1h` / `idle >5m` | The TTL expired between messages |
+| `model changed` | You switched models (e.g. `/model`) — each model has its own cache |
+| `tools changed` | Tools were added or removed (e.g. an MCP server connected) |
+| `prompt changed` | The system prompt changed |
+| `server-side` | Most likely evicted on Anthropic's side; nothing you did |
+
+Causes Claude Code adds later show up as-is, with underscores turned into spaces.
+
+**What to do with it.** When you see expiring, sending any message within the window keeps the cache warm. When you see cold, decide whether the old context is still worth its re-cache cost: if it is, carry on — you pay once and the cache is warm again; if not, `/compact` or a fresh session re-caches far less. A climbing miss total is a hint that long sessions with frequent breaks are getting expensive.
+
+**Countdown vs. clock time.** Claude Code only redraws the statusline when something happens, so a countdown would freeze while you're away. lumira shows the minute countdown only when it knows the line redraws at least once a minute — `refreshInterval` ≤ 60 in lumira's own config, applied with `lumira install` (see [Manual setup](#manual-setup)); a value set only in `settings.json` isn't visible to lumira. Otherwise the badge shows the clock time the cache expires (`❄ 14:26 · 103k`), which stays correct however long the line goes without a redraw.
+
+The badge tracks the main session only — subagents keep their own caches and aren't counted — and appears after the first response of a session. Toggle with `display.promptCache` (on in `full` and `balanced`, off in `minimal`). It's independent of the cache hit rate widget (`87%⚡`), which measures the current turn; both can show after a miss.
 
 ## Powerline
 
