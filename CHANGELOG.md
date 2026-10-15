@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-10-15
+
 ### Added
 
 - **Agent type and model in subagent rows.** `lumira subagent` now shows each subagent's type (`Explore`, `general-purpose`, your custom agents — CC's `agentType`, ≥ 2.1.293) and model family (`haiku`, `sonnet`, `opus`) as columns aligned across the visible rows: `󱎫 Explore  haiku  reviewing auth module · 15k tok · running`. Claude Code's own row shows the type, so replacing the row used to hide it — parallel agents with similar descriptions were indistinguishable. The model is new: CC's default row doesn't show it. On narrow rows the description gives way first, then the model, then the type. Payloads without these fields render exactly as before.
+
+### Changed
+
+- **Docs: how to read the prompt cache badge.** The README has a dedicated section — when each state appears, what the numbers mean (the miss count and tokens are session totals; the cause is the latest miss's), and what to do about it. The lumira skill and `docs/configuration.md` now list every `display.*` toggle.
 
 ### Fixed
 
@@ -696,7 +702,8 @@ First stable release. API is now considered stable under SemVer.
 - GSD session IDs sanitized against path traversal
 - `execFile` used instead of `exec` to prevent shell injection (except terminal width detection where shell redirect is required with procfs-sourced paths)
 
-[Unreleased]: https://github.com/cativo23/lumira/compare/v1.19.0...HEAD
+[Unreleased]: https://github.com/cativo23/lumira/compare/v1.20.0...HEAD
+[1.20.0]: https://github.com/cativo23/lumira/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/cativo23/lumira/compare/v1.18.1...v1.19.0
 [1.18.1]: https://github.com/cativo23/lumira/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/cativo23/lumira/compare/v1.17.1...v1.18.0
