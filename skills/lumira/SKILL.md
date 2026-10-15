@@ -46,7 +46,9 @@ Your job: read the user's current config, translate their natural-language reque
 
 Valid keys (anything else must be rejected):
 
-`model`, `branch`, `gitChanges`, `directory`, `contextBar`, `contextTokens`, `tokens`, `cost`, `burnRate`, `duration`, `tokenSpeed`, `rateLimits`, `paceDelta`, `quotaProjection`, `tools`, `todos`, `vim`, `effort`, `worktree`, `agent`, `agents`, `sessionName`, `style`, `version`, `linesChanged`, `memory`, `cacheMetrics`, `mcp`, `health`, `apiLatency`, `addedDirs`, `worktreeBreadcrumb`
+`model`, `branch`, `gitChanges`, `directory`, `contextBar`, `contextTokens`, `tokens`, `cost`, `burnRate`, `duration`, `tokenSpeed`, `rateLimits`, `paceDelta`, `quotaProjection`, `tools`, `todos`, `vim`, `effort`, `worktree`, `agent`, `agents`, `sessionName`, `style`, `version`, `linesChanged`, `memory`, `cacheMetrics`, `mcp`, `health`, `apiLatency`, `addedDirs`, `worktreeBreadcrumb`, `compactionCount`, `pr`, `repo`, `thinking`, `fastMode`, `promptCache`
+
+`promptCache` is the prompt cache badge (Claude Code ≥ 2.1.251): hidden while the cache is healthy, it shows `❄ 8m · 103k` as the cache nears expiry, `❄ cold · 103k` once it has expired, and `miss ×2 · 203k · model changed` for 5 minutes after a cache miss. The token figure is what the next message re-caches; on a miss, the count and tokens are session totals and the cause is the latest miss's. The minute countdown needs `refreshInterval` ≤ 60 in lumira's config (then `lumira install`); without it the badge shows the expiry clock time. It's separate from `cacheMetrics`, the per-turn hit rate.
 
 ### Display thresholds (`display.*`, numeric)
 
@@ -116,6 +118,16 @@ User intent → minimal JSON patch (assume existing config is preserved unless e
   "display": {
     "cacheMetrics": true,
     "mcp": true
+  }
+}
+```
+
+**"warn me before my prompt cache goes cold"** (countdown needs a timer; re-run `lumira install` after)
+```json
+{
+  "refreshInterval": 5,
+  "display": {
+    "promptCache": true
   }
 }
 ```
