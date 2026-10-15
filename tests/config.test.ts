@@ -815,12 +815,15 @@ describe('saveConfig', () => {
     });
   });
 
-  it('overwrites corrupt JSON with wizard keys only', () => {
+  it.each([
+    ['malformed JSON', 'not { valid json'],
+    ['JSON null', 'null'],
+    ['a JSON array', '[1]'],
+  ])('refuses to overwrite a config holding %s', (_label, contents) => {
     const p = join(dir, 'config.json');
-    writeFileSync(p, 'not { valid json');
-    saveConfig({ preset: 'minimal', icons: 'emoji' }, p);
-    const content = JSON.parse(readFileSync(p, 'utf8'));
-    expect(content).toEqual({ preset: 'minimal', icons: 'emoji' });
+    writeFileSync(p, contents);
+    expect(() => saveConfig({ preset: 'minimal', icons: 'emoji' }, p)).toThrow(/not a JSON object.*nothing was changed/);
+    expect(readFileSync(p, 'utf8')).toBe(contents);
   });
 
   it('omits theme key when undefined in input', () => {

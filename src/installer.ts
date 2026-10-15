@@ -301,6 +301,9 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
   let settings: Record<string, unknown> = {};
 
   if (existsSync(settingsPath)) settings = readSettingsObject(settingsPath);
+  // finalize() saves config.json after settings.json is already written —
+  // check it can be saved now, so a broken config stops the install untouched.
+  if (existsSync(configPath)) readSettingsObject(configPath);
 
   const hasForeignStatusLine = settings.statusLine && !isLumira(settings.statusLine);
   if (hasForeignStatusLine) {

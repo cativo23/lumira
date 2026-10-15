@@ -538,16 +538,21 @@ export interface WizardResult {
 export function saveConfig(wizard: WizardResult, configPath: string): void {
   mkdirSync(dirname(configPath), { recursive: true });
 
+  // A config that does not parse still holds the user's widgets and display
+  // toggles — refuse rather than replace it with the three wizard keys.
   let existing: Record<string, unknown> = {};
   if (existsSync(configPath)) {
+    let parsed: unknown;
+    let reason = '';
     try {
-      const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        existing = parsed as Record<string, unknown>;
-      }
-    } catch {
-      existing = {};
+      parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    } catch (e) {
+      reason = ` (${(e as Error).message})`;
     }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(`${configPath} is not a JSON object${reason}. Fix it and run the command again — nothing was changed.`);
+    }
+    existing = parsed as Record<string, unknown>;
   }
 
   const merged: Record<string, unknown> = { ...existing, preset: wizard.preset, icons: wizard.icons };

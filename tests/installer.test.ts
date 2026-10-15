@@ -200,6 +200,16 @@ describe('install', () => {
       expect(readdirSync(dir).filter(f => f.endsWith('.bak'))).toHaveLength(0);
     });
 
+    it('stops before writing settings.json when config.json does not parse', async () => {
+      const settings = JSON.stringify({ statusLine: { type: 'command', command: 'other-tool', padding: 0 } });
+      writeFileSync(settingsPath, settings);
+      writeFileSync(configPath, '{ "customWidgets": { ');
+      await expect(install(baseOpts())).rejects.toThrow(/config\.json.*not a JSON object/s);
+      expect(readFileSync(settingsPath, 'utf8')).toBe(settings);
+      expect(readFileSync(configPath, 'utf8')).toBe('{ "customWidgets": { ');
+      expect(existsSync(backupPath)).toBe(false);
+    });
+
     it('creates parent directories that do not exist', async () => {
       const nested = join(dir, 'nested', 'deep', 'settings.json');
       await install({ ...baseOpts(), settingsPath: nested });
