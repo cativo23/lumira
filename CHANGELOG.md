@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Git change counts when the first change is unstaged.** If the first line of `git status` was an unstaged edit (` M file`), lumira counted it as staged and showed one modified file fewer — in a repo whose only change was an unstaged edit, the statusline read 1 staged, 0 modified. The command output lost its leading space before parsing; now only the trailing newline is removed.
+
 ## [1.20.0] - 2026-10-15
 
 ### Added

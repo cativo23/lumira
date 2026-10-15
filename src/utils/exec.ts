@@ -10,7 +10,7 @@ export function safeExec(cmd: string, args: string[], opts: ExecOptions = {}): P
   return new Promise((resolve) => {
     execFile(cmd, args, { cwd, timeout: timeoutMs, encoding: 'utf8' }, (error, stdout) => {
       if (error) { resolve(''); return; }
-      resolve((stdout ?? '').trim());
+      resolve((stdout ?? '').trimEnd());
     });
   });
 }

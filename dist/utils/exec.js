@@ -7,7 +7,7 @@ export function safeExec(cmd, args, opts = {}) {
                 resolve('');
                 return;
             }
-            resolve((stdout ?? '').trim());
+            resolve((stdout ?? '').trimEnd());
         });
     });
 }
