@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, statSync, symlinkSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadConfig, mergeCliFlags, _resetMigrationFlags, saveConfig } from '../src/config.js';
@@ -815,12 +815,25 @@ describe('saveConfig', () => {
     });
   });
 
-  it('overwrites corrupt JSON with wizard keys only', () => {
+  it.each([
+    ['malformed JSON', 'not { valid json'],
+    ['JSON null', 'null'],
+    ['a JSON array', '[1]'],
+  ])('refuses to overwrite a config holding %s', (_label, contents) => {
     const p = join(dir, 'config.json');
-    writeFileSync(p, 'not { valid json');
-    saveConfig({ preset: 'minimal', icons: 'emoji' }, p);
-    const content = JSON.parse(readFileSync(p, 'utf8'));
-    expect(content).toEqual({ preset: 'minimal', icons: 'emoji' });
+    writeFileSync(p, contents);
+    expect(() => saveConfig({ preset: 'minimal', icons: 'emoji' }, p)).toThrow(/(not valid JSON|not a JSON object).*nothing was changed/);
+    expect(readFileSync(p, 'utf8')).toBe(contents);
+  });
+
+  it('writes through a symlinked config.json and keeps the link', () => {
+    const target = join(dir, 'real-config.json');
+    writeFileSync(target, JSON.stringify({ display: { tokens: false } }));
+    const p = join(dir, 'config.json');
+    symlinkSync(target, p);
+    saveConfig({ preset: 'minimal', icons: 'nerd' }, p);
+    expect(lstatSync(p).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual({ display: { tokens: false }, preset: 'minimal', icons: 'nerd' });
   });
 
   it('omits theme key when undefined in input', () => {

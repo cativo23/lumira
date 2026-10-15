@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync, rmdirSync, renameSync, openSync, writeSync, fsyncSync, closeSync } from 'node:fs';
+import { existsSync, statSync, copyFileSync, unlinkSync, mkdirSync, rmdirSync, renameSync, openSync, writeSync, fsyncSync, closeSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline';
 import { runWizard } from './installer-wizard.js';
 import { saveConfig, loadConfig } from './config.js';
 import { getBanner, getSubtitle } from './tui/banner.js';
+import { assertWritable, readJsonObject, writeTarget } from './utils/json-file.js';
 // ── ANSI helpers ────────────────────────────────────────────────────
 const RST = '\x1b[0m';
 const GREEN = '\x1b[32m';
@@ -45,14 +46,15 @@ function refreshIntervalChanged(current, desired) {
 }
 /** Atomically write settings.json: temp file + fsync + rename, mode 0600. */
 function writeSettingsAtomic(settings, settingsPath) {
-    mkdirSync(dirname(settingsPath), { recursive: true });
-    const tmp = `${settingsPath}.${process.pid}.${Date.now()}.lumira.tmp`;
+    const target = writeTarget(settingsPath);
+    mkdirSync(dirname(target), { recursive: true });
+    const tmp = `${target}.${process.pid}.${Date.now()}.lumira.tmp`;
     try {
         const fd = openSync(tmp, 'wx', 0o600);
         writeSync(fd, JSON.stringify(settings, null, 2) + '\n');
         fsyncSync(fd);
         closeSync(fd);
-        renameSync(tmp, settingsPath);
+        renameSync(tmp, target);
     }
     catch (e) {
         try {
@@ -137,12 +139,21 @@ function isLumira(statusLine) {
     return typeof sl.command === 'string' && sl.command.includes('lumira');
 }
 // ── Prompt helper ───────────────────────────────────────────────────
-export function promptYN(question) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    return new Promise((resolve) => {
-        rl.question(`${question} (y/N) `, (answer) => {
+export function promptYN(question, input = process.stdin, output = process.stdout) {
+    const rl = createInterface({ input, output });
+    return new Promise((resolve, reject) => {
+        // Ctrl+C cancels the whole install: answering "no" would carry on and
+        // write settings.json at the global-install or subagent prompts.
+        rl.once('SIGINT', () => {
+            reject(new Error('Cancelled — settings.json and config.json were not changed.'));
             rl.close();
+        });
+        // Without this, stdin closing before an answer (a piped or CI install)
+        // leaves the promise pending and node exits 0 having done nothing.
+        rl.once('close', () => resolve(false));
+        rl.question(`${question} (y/N) `, (answer) => {
             resolve(answer.trim().toLowerCase() === 'y');
+            rl.close();
         });
     });
 }
@@ -239,22 +250,18 @@ export async function install(opts = {}) {
     // doesn't waste time configuring preset/theme/icons only to decline
     // the replacement at the end.
     let settings = {};
-    if (existsSync(settingsPath)) {
-        try {
-            const parsed = JSON.parse(readFileSync(settingsPath, 'utf8'));
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                settings = parsed;
-            }
-            else {
-                lines.push(warn('Could not parse existing settings.json, creating fresh'));
-                settings = {};
-            }
-        }
-        catch {
-            lines.push(warn('Could not parse existing settings.json, creating fresh'));
-            settings = {};
-        }
-    }
+    // Resolve both write targets first: a link into a missing directory must
+    // fail here, not after settings.json has been rewritten and backed up.
+    const settingsTarget = writeTarget(settingsPath);
+    const configTarget = writeTarget(configPath);
+    assertWritable(settingsTarget);
+    assertWritable(configTarget);
+    if (existsSync(settingsTarget))
+        settings = readJsonObject(settingsTarget);
+    // finalize() saves config.json after settings.json is already written —
+    // check it can be saved now, so a broken config stops the install untouched.
+    if (existsSync(configTarget))
+        readJsonObject(configTarget);
     const hasForeignStatusLine = settings.statusLine && !isLumira(settings.statusLine);
     if (hasForeignStatusLine) {
         const rawCmd = settings.statusLine.command ?? 'unknown';
@@ -354,11 +361,9 @@ export async function install(opts = {}) {
             return finalize();
         }
     }
-    else if (settings.statusLine) {
-        // Foreign statusLine already confirmed above — back it up and replace.
-        copyFileSync(settingsPath, backupPath);
-        lines.push(ok(`Backed up existing settings → ${DIM}settings.json.lumira.bak${RST}`));
-    }
+    // Foreign statusLine already confirmed above — back it up just before the
+    // write, after the last prompt, so a Ctrl+C there leaves no stray backup.
+    const backUpForeign = !existingIsLumira && !!settings.statusLine;
     // `desiredRefreshInterval` undefined means config.json doesn't manage this
     // field — fall back to whatever refreshInterval is already on the existing
     // lumira statusLine (if any) so an upgrade never silently deletes a value
@@ -368,6 +373,10 @@ export async function install(opts = {}) {
         : undefined;
     settings.statusLine = makeStatusLine(resolvedCmd, desiredRefreshInterval ?? existingRefreshInterval);
     await maybeRegisterSubagent({ settings, baseCmd: resolvedCmd, confirm, isTTY: !!stdin?.isTTY, lines });
+    if (backUpForeign) {
+        copyFileSync(settingsPath, backupPath);
+        lines.push(ok(`Backed up existing settings → ${DIM}settings.json.lumira.bak${RST}`));
+    }
     writeSettingsAtomic(settings, settingsPath);
     lines.push(ok(existingIsLumira
         ? `Upgraded statusline command → ${DIM}${resolvedCmd}${RST} (faster)`
@@ -384,56 +393,49 @@ export function uninstall(opts = {}) {
         lines.push(ok('Nothing to uninstall — no settings.json found'));
         return lines.join('\n') + '\n';
     }
+    // Throws (exit 1 from the CLI) when settings.json is unreadable or not a
+    // JSON object — nothing is written and the backup stays for a retry.
+    const uninstSettings = readJsonObject(settingsPath);
+    // The backup is the whole settings.json from before install, so restoring
+    // the file would also undo every edit made since. Take only the keys
+    // lumira replaced. A corrupt backup is kept: it still holds the previous
+    // statusline for the user to recover by hand.
+    let backup;
     if (existsSync(backupPath)) {
         try {
-            JSON.parse(readFileSync(backupPath, 'utf8'));
-            copyFileSync(backupPath, settingsPath);
-            unlinkSync(backupPath);
-            lines.push(ok('Restored previous settings from backup'));
-            // Remove skill from both destinations (best effort)
-            for (const root of [join(home, '.claude'), join(home, '.qwen')]) {
-                const skillFile = join(root, 'skills', 'lumira', 'SKILL.md');
-                if (existsSync(skillFile)) {
-                    try {
-                        unlinkSync(skillFile);
-                        try {
-                            rmdirSync(dirname(skillFile));
-                        }
-                        catch { /* dir not empty, ok */ }
-                        try {
-                            rmdirSync(dirname(dirname(skillFile)));
-                        }
-                        catch { /* parent skills/ not empty, ok */ }
-                    }
-                    catch { /* best effort */ }
-                }
-            }
-            lines.push(`\n  Restart Claude Code to apply changes.\n`);
-            return lines.join('\n') + '\n';
+            // Install only writes a backup holding a statusline, so an empty one is
+            // corrupt — unlike settings.json, where empty just means "no settings".
+            if (statSync(backupPath).size === 0)
+                throw new Error('empty backup');
+            backup = readJsonObject(backupPath);
         }
         catch {
-            lines.push(warn('Backup file is corrupt — skipping restore'));
-            try {
-                unlinkSync(backupPath);
-            }
-            catch { }
+            lines.push(warn(`Backup file is corrupt — skipping restore, kept at ${DIM}${backupPath}${RST}`));
         }
     }
-    let uninstSettings;
-    try {
-        uninstSettings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    let changed = false;
+    let restored = false;
+    for (const key of ['statusLine', 'subagentStatusLine']) {
+        if (!isLumira(uninstSettings[key]))
+            continue;
+        changed = true;
+        if (backup?.[key] !== undefined) {
+            uninstSettings[key] = backup[key];
+            restored = true;
+        }
+        else {
+            delete uninstSettings[key];
+        }
     }
-    catch {
-        lines.push(warn('Could not parse settings.json'));
-        lines.push(`\n  Restart Claude Code to apply changes.\n`);
-        return lines.join('\n') + '\n';
+    if (changed) {
+        writeSettingsAtomic(uninstSettings, settingsPath);
+        if (restored)
+            unlinkSync(backupPath);
+        lines.push(ok(restored ? 'Restored previous statusline from backup' : 'Removed lumira statusline from settings'));
     }
-    delete uninstSettings.statusLine;
-    // Only remove the subagent hook if it's ours — never wipe a foreign renderer.
-    if (isLumira(uninstSettings.subagentStatusLine))
-        delete uninstSettings.subagentStatusLine;
-    writeSettingsAtomic(uninstSettings, settingsPath);
-    lines.push(ok('Removed lumira statusline from settings'));
+    else {
+        lines.push(ok('lumira is not configured in settings.json — nothing to change'));
+    }
     // Remove skill from both destinations (best effort)
     for (const root of [join(home, '.claude'), join(home, '.qwen')]) {
         const skillFile = join(root, 'skills', 'lumira', 'SKILL.md');

@@ -167,7 +167,9 @@ To uninstall:
 npx lumira uninstall
 ```
 
-Your preferences are saved to `~/.config/lumira/config.json` — hand-edited keys (e.g. custom `display` toggles) are preserved on re-install.
+Uninstall only touches `statusLine` and `subagentStatusLine`, and only while they still point at lumira: if lumira replaced another statusline, that one comes back; everything else in `settings.json` — including edits you made after installing — stays as it is. If the backup lumira made at install time is corrupt, it is kept for you to recover by hand.
+
+Your preferences are saved to `~/.config/lumira/config.json` — hand-edited keys (e.g. custom `display` toggles) are preserved on re-install. If `settings.json` or `config.json` isn't valid JSON (a trailing comma, a comment), the installer stops and tells you which file to fix instead of overwriting it.
 
 ### Manual setup
 

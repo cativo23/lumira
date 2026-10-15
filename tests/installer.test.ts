@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, symlinkSync, lstatSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { install, uninstall, commandSpeed } from '../src/installer.js';
+import { PassThrough, Readable, Writable } from 'node:stream';
+import { install, uninstall, commandSpeed, promptYN } from '../src/installer.js';
 import { createMockStdin, createMockStdout } from './tui/_mock-stdin.js';
 
 describe('commandSpeed', () => {
@@ -19,6 +20,26 @@ describe('commandSpeed', () => {
     ['lumira', 3],   // bare binary — always resolves to current installed version
   ])('ranks %j as speed %i', (cmd, rank) => {
     expect(commandSpeed(cmd as string)).toBe(rank);
+  });
+});
+
+describe('promptYN', () => {
+  const sink = () => new Writable({ write(_c, _e, cb) { cb(); } });
+
+  it('answers no when stdin closes without an answer', async () => {
+    await expect(promptYN('Replace?', Readable.from([]), sink())).resolves.toBe(false);
+  });
+
+  it('cancels on Ctrl+C at a terminal instead of answering no', async () => {
+    const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => {} });
+    const output = Object.assign(sink(), { isTTY: true, columns: 80 });
+    const answer = promptYN('Install globally?', input, output);
+    setImmediate(() => input.write('\x03'));
+    await expect(answer).rejects.toThrow(/cancelled/i);
+  });
+
+  it('still accepts a piped yes', async () => {
+    await expect(promptYN('Replace?', Readable.from(['y\n']), sink())).resolves.toBe(true);
   });
 });
 
@@ -192,11 +213,69 @@ describe('install', () => {
       ['malformed JSON', 'this is { not valid JSON!!'],
       ['JSON null', 'null'],
       ['a JSON array', '[1,2,3]'],
-    ])('recovers from %s and writes a fresh statusLine', async (_label, contents) => {
+    ])('refuses to touch a settings.json holding %s', async (_label, contents) => {
       writeFileSync(settingsPath, contents);
-      const output = await install(baseOpts());
-      expect(output).toContain('Could not parse');
-      expect(readCmd()).toBe('npx lumira');
+      await expect(install(baseOpts())).rejects.toThrow(/settings\.json.*(not valid JSON|not a JSON object).*nothing was changed/s);
+      expect(readFileSync(settingsPath, 'utf8')).toBe(contents);
+      expect(existsSync(configPath)).toBe(false);
+      expect(readdirSync(dir).filter(f => f.endsWith('.bak'))).toHaveLength(0);
+    });
+
+    it('stops before writing settings.json when config.json does not parse', async () => {
+      const settings = JSON.stringify({ statusLine: { type: 'command', command: 'other-tool', padding: 0 } });
+      writeFileSync(settingsPath, settings);
+      writeFileSync(configPath, '{ "customWidgets": { ');
+      await expect(install(baseOpts())).rejects.toThrow(/config\.json.*not valid JSON/s);
+      expect(readFileSync(settingsPath, 'utf8')).toBe(settings);
+      expect(readFileSync(configPath, 'utf8')).toBe('{ "customWidgets": { ');
+      expect(existsSync(backupPath)).toBe(false);
+    });
+
+    it('writes through a symlinked settings.json and keeps the link', async () => {
+      const dotfiles = join(dir, 'dotfiles');
+      mkdirSync(dotfiles);
+      const target = join(dotfiles, 'settings.json');
+      writeFileSync(target, JSON.stringify({ hooks: {} }));
+      symlinkSync(target, settingsPath);
+      await install(baseOpts());
+      expect(lstatSync(settingsPath).isSymbolicLink()).toBe(true);
+      expect(JSON.parse(readFileSync(target, 'utf8')).statusLine.command).toBe('npx lumira');
+    });
+
+    it('writes through a dangling settings.json symlink and keeps the link', async () => {
+      const dotfiles = join(dir, 'dotfiles');
+      mkdirSync(dotfiles);
+      const target = join(dotfiles, 'settings.json');
+      symlinkSync(target, settingsPath);
+      await install(baseOpts());
+      expect(lstatSync(settingsPath).isSymbolicLink()).toBe(true);
+      expect(JSON.parse(readFileSync(target, 'utf8')).statusLine.command).toBe('npx lumira');
+    });
+
+    it('stops before writing anything when config.json links into a missing directory', async () => {
+      const foreign = JSON.stringify({ statusLine: { type: 'command', command: 'other-tool', padding: 0 } });
+      writeFileSync(settingsPath, foreign);
+      symlinkSync(join(dir, 'missing', 'config.json'), configPath);
+      await expect(install(baseOpts())).rejects.toThrow(/symlink .*config\.json.*could not be created/s);
+      expect(readFileSync(settingsPath, 'utf8')).toBe(foreign);
+      expect(existsSync(backupPath)).toBe(false);
+    });
+
+    it.skipIf(process.getuid?.() === 0)('stops before writing anything when config.json links into a read-only directory', async () => {
+      const foreign = JSON.stringify({ statusLine: { type: 'command', command: 'other-tool', padding: 0 } });
+      writeFileSync(settingsPath, foreign);
+      const store = join(dir, 'store');
+      mkdirSync(store);
+      writeFileSync(join(store, 'config.json'), '{}');
+      chmodSync(store, 0o500);
+      symlinkSync(join(store, 'config.json'), configPath);
+      try {
+        await expect(install(baseOpts())).rejects.toThrow(/config\.json.*not writable/s);
+        expect(readFileSync(settingsPath, 'utf8')).toBe(foreign);
+        expect(existsSync(backupPath)).toBe(false);
+      } finally {
+        chmodSync(store, 0o700);
+      }
     });
 
     it('creates parent directories that do not exist', async () => {
@@ -254,6 +333,24 @@ describe('install', () => {
       await completeWizard(stdin);
       await promise;
       expect(readSettings().subagentStatusLine).toBeUndefined();
+    });
+
+    it('leaves no backup and no changed settings when cancelled at the subagent prompt', async () => {
+      const foreign = JSON.stringify({ statusLine: { type: 'command', command: 'other-tool', padding: 0 } });
+      writeFileSync(settingsPath, foreign);
+      const stdin = createMockStdin(true);
+      const promise = install({
+        ...baseOpts(), stdin, stdout: createMockStdout(),
+        hasGlobalBin: () => true,
+        confirm: async (q: string) => {
+          if (q.includes('subagent')) throw new Error('Cancelled — settings.json was not changed.');
+          return true;
+        },
+      });
+      await completeWizard(stdin);
+      await expect(promise).rejects.toThrow(/Cancelled/);
+      expect(readFileSync(settingsPath, 'utf8')).toBe(foreign);
+      expect(existsSync(backupPath)).toBe(false);
     });
 
     it('never prompts or registers in a non-TTY install', async () => {
@@ -376,6 +473,77 @@ describe('uninstall', () => {
     expect(output).toContain('Restored');
   });
 
+  it('restores only the statusline keys from the backup, keeping edits made after install', () => {
+    const backup = {
+      statusLine: { type: 'command', command: 'old-tool', padding: 0 },
+      subagentStatusLine: { type: 'command', command: 'old-agents', padding: 0 },
+      hooks: {},
+    };
+    const current = {
+      statusLine: { type: 'command', command: 'lumira', padding: 0 },
+      subagentStatusLine: { type: 'command', command: 'lumira subagent', padding: 0 },
+      hooks: { Stop: [{ hooks: [{ type: 'command', command: 'notify' }] }] },
+      permissions: { allow: ['Bash(ls)'] },
+    };
+    writeFileSync(backupPath, JSON.stringify(backup, null, 2));
+    writeFileSync(settingsPath, JSON.stringify(current, null, 2));
+    uninstall({ settingsPath });
+    const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    expect(data.statusLine.command).toBe('old-tool');
+    expect(data.subagentStatusLine.command).toBe('old-agents');
+    expect(data.hooks).toEqual(current.hooks);
+    expect(data.permissions).toEqual(current.permissions);
+    expect(existsSync(backupPath)).toBe(false);
+  });
+
+  it('removes the lumira subagent hook when the backup had none', () => {
+    const backup = { statusLine: { type: 'command', command: 'old-tool', padding: 0 } };
+    const current = {
+      statusLine: { type: 'command', command: 'lumira', padding: 0 },
+      subagentStatusLine: { type: 'command', command: 'lumira subagent', padding: 0 },
+    };
+    writeFileSync(backupPath, JSON.stringify(backup, null, 2));
+    writeFileSync(settingsPath, JSON.stringify(current, null, 2));
+    uninstall({ settingsPath });
+    const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    expect(data.statusLine.command).toBe('old-tool');
+    expect(data.subagentStatusLine).toBeUndefined();
+  });
+
+  it('keeps the backup when settings.json cannot be read, so a later uninstall can still restore it', () => {
+    const backup = { statusLine: { type: 'command', command: 'old-tool', padding: 0 } };
+    writeFileSync(backupPath, JSON.stringify(backup, null, 2));
+    writeFileSync(settingsPath, '{ broken');
+    expect(() => uninstall({ settingsPath })).toThrow(/not valid JSON.*nothing was changed/s);
+    expect(readFileSync(settingsPath, 'utf8')).toBe('{ broken');
+    expect(existsSync(backupPath)).toBe(true);
+  });
+
+  it('says nothing changed, and does not rewrite the file, when lumira is not configured', () => {
+    const backup = { statusLine: { type: 'command', command: 'old-tool', padding: 0 } };
+    const contents = '{"statusLine":{"type":"command","command":"my-own-renderer"}}';
+    writeFileSync(backupPath, JSON.stringify(backup));
+    writeFileSync(settingsPath, contents);
+    const output = uninstall({ settingsPath });
+    expect(output).toContain('not configured');
+    expect(output).not.toContain('Restored');
+    expect(readFileSync(settingsPath, 'utf8')).toBe(contents);
+  });
+
+  it('leaves a foreign statusLine alone', () => {
+    const current = { statusLine: { type: 'command', command: 'my-own-renderer', padding: 0 } };
+    writeFileSync(settingsPath, JSON.stringify(current, null, 2));
+    uninstall({ settingsPath });
+    const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    expect(data.statusLine.command).toBe('my-own-renderer');
+  });
+
+  it('reports a settings.json holding JSON null as an error, without a TypeError', () => {
+    writeFileSync(settingsPath, 'null');
+    expect(() => uninstall({ settingsPath })).toThrow(/is not a JSON object/);
+    expect(readFileSync(settingsPath, 'utf8')).toBe('null');
+  });
+
   it('removes both lumira-owned keys (statusLine + subagentStatusLine) when no backup exists', () => {
     const current = {
       statusLine: { type: 'command', command: 'npx lumira@latest', padding: 0 },
@@ -408,23 +576,45 @@ describe('uninstall', () => {
     expect(output).toContain('Nothing to uninstall');
   });
 
-  it('warns and skips restore when backup is corrupt', () => {
+  it('keeps a corrupt backup, so the previous statusline can still be recovered by hand', () => {
     const current = { statusLine: { type: 'command', command: 'npx lumira@latest', padding: 0 } };
     writeFileSync(settingsPath, JSON.stringify(current, null, 2));
     writeFileSync(backupPath, 'this is not valid JSON!!!');
     const output = uninstall({ settingsPath });
     expect(output).toContain('corrupt');
-    expect(existsSync(backupPath)).toBe(false);
-    // Should fall through to removing statusLine key
+    expect(output).toContain(backupPath);
+    expect(readFileSync(backupPath, 'utf8')).toBe('this is not valid JSON!!!');
     const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
     expect(data.statusLine).toBeUndefined();
   });
 
-  it('warns "Could not parse" (not "write") when settings.json is malformed during uninstall', () => {
-    writeFileSync(settingsPath, 'this is { not valid JSON!!');
+  it('keeps a backup it did not restore from', () => {
+    const backup = { statusLine: { type: 'command', command: 'old-tool', padding: 0 } };
+    const current = {
+      statusLine: { type: 'command', command: 'my-own-renderer', padding: 0 },
+      subagentStatusLine: { type: 'command', command: 'lumira subagent', padding: 0 },
+    };
+    writeFileSync(backupPath, JSON.stringify(backup));
+    writeFileSync(settingsPath, JSON.stringify(current));
+    uninstall({ settingsPath });
+    const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    expect(data.subagentStatusLine).toBeUndefined();
+    expect(data.statusLine.command).toBe('my-own-renderer');
+    expect(existsSync(backupPath)).toBe(true);
+  });
+
+  it('treats an empty backup as corrupt and keeps it', () => {
+    const current = { statusLine: { type: 'command', command: 'lumira', padding: 0 } };
+    writeFileSync(settingsPath, JSON.stringify(current));
+    writeFileSync(backupPath, '');
     const output = uninstall({ settingsPath });
-    expect(output).toContain('Could not parse');
-    expect(output).not.toContain('Could not write');
+    expect(output).toContain('corrupt');
+    expect(existsSync(backupPath)).toBe(true);
+  });
+
+  it('reports a settings.json it cannot read as unreadable, not as invalid JSON', () => {
+    mkdirSync(settingsPath);
+    expect(() => uninstall({ settingsPath })).toThrow(/could not be read/);
   });
 
   it('leaves no .lumira.tmp file after successful uninstall', () => {

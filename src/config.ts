@@ -29,6 +29,7 @@ import {
 } from './types.js';
 import { stripAnsi } from './render/colors.js';
 import { toSingleLine } from './utils/format.js';
+import { readJsonObject, writeTarget } from './utils/json-file.js';
 
 /**
  * Ids we refuse to accept on user-supplied custom commands. Object.prototype
@@ -536,25 +537,18 @@ export interface WizardResult {
 }
 
 export function saveConfig(wizard: WizardResult, configPath: string): void {
-  mkdirSync(dirname(configPath), { recursive: true });
-
-  let existing: Record<string, unknown> = {};
-  if (existsSync(configPath)) {
-    try {
-      const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        existing = parsed as Record<string, unknown>;
-      }
-    } catch {
-      existing = {};
-    }
-  }
+  // A config that does not parse still holds the user's widgets and display
+  // toggles — readJsonObject refuses rather than let it be replaced with the
+  // three wizard keys.
+  const existing = existsSync(configPath) ? readJsonObject(configPath) : {};
 
   const merged: Record<string, unknown> = { ...existing, preset: wizard.preset, icons: wizard.icons };
   if (wizard.theme !== undefined) merged.theme = wizard.theme;
   else delete merged.theme;
 
-  const tmp = configPath + '.tmp';
+  const target = writeTarget(configPath);
+  mkdirSync(dirname(target), { recursive: true });
+  const tmp = target + '.tmp';
   writeFileSync(tmp, JSON.stringify(merged, null, 2) + '\n', { mode: 0o600 });
-  renameSync(tmp, configPath);
+  renameSync(tmp, target);
 }
