@@ -28,11 +28,6 @@ import type { SubagentTask, SubagentInput, HudConfig } from '../../src/types.js'
 
 const colors = createColors('named');
 
-/** Terminal cell where `needle` starts — glyphs differ in code units vs cells. */
-function cellOf(row: string, needle: string): number {
-  return displayWidth(row.slice(0, row.indexOf(needle)));
-}
-
 function task(over: Partial<SubagentTask> = {}): SubagentTask {
   return { id: 'a1', name: 'code-reviewer', status: 'running', tokenCount: 15000, ...over };
 }
@@ -169,11 +164,17 @@ describe('renderSubagentContent', () => {
         .toBe('Explore  List render module files · 26k tok · running');
     });
 
-    it('caps a long custom agent type at 20 columns', () => {
+    it('keeps typical custom agent names whole', () => {
+      const out = stripAnsi(renderSubagentContent(
+        real({ agentType: 'cccv-pr-reviewer-frontend', model: undefined }), NO_ICONS, colors));
+      expect(out.startsWith('cccv-pr-reviewer-frontend  ')).toBe(true);
+    });
+
+    it('caps a long custom agent type at 28 columns', () => {
       const out = stripAnsi(renderSubagentContent(
         real({ agentType: 'an-extremely-long-custom-agent-type', model: undefined }), NO_ICONS, colors));
       const typeCell = out.split('  ')[0];
-      expect(displayWidth(typeCell)).toBe(20);
+      expect(displayWidth(typeCell)).toBe(28);
       expect(typeCell.endsWith('…')).toBe(true);
     });
 
@@ -214,6 +215,12 @@ describe('renderSubagentContent', () => {
       expect(modelFamily('claude-opus-5-5')).toBe('opus');
       expect(modelFamily('claude-sonnet-4-6[1m]')).toBe('sonnet');
       expect(modelFamily('gpt-5')).toBe('');
+    });
+
+    it('ignores model ids whose family is not a short dash-delimited word', () => {
+      expect(modelFamily('claude-haikuX')).toBe('');
+      expect(modelFamily('claude-' + 'a'.repeat(200))).toBe('');
+      expect(modelFamily('claude-opus')).toBe('opus');
     });
 
     it('survives non-string fields from an untrusted payload', () => {
@@ -301,8 +308,24 @@ describe('renderSubagentTasks', () => {
         { id: 'c', agentType: 'Explore', status: 'pending', description: 'three' },
       ],
     };
-    const rows = renderSubagentTasks(input, NO_ICONS, colors).split('\n').map(l => stripAnsi(JSON.parse(l).content));
-    expect(new Set(rows.map(r => cellOf(r, 'Explore'))).size).toBe(1);
+    const render = (icons: typeof NO_ICONS) =>
+      renderSubagentTasks(input, icons, colors).split('\n').map(l => stripAnsi(JSON.parse(l).content));
+    // ✓ is a one-cell glyph in terminals even though displayWidth counts it as two.
+    expect(render(NO_ICONS)).toEqual([
+      '  Explore  one · running',
+      '✓ Explore  two · done',
+      '  Explore  three · pending',
+    ]);
+    expect(render(NERD_ICONS)).toEqual([
+      `${NERD_ICONS.clock} Explore  one · running`,
+      '✓ Explore  two · done',
+      '  Explore  three · pending',
+    ]);
+    expect(render(EMOJI_ICONS)).toEqual([
+      `${EMOJI_ICONS.clock} Explore  one · running`,
+      `${EMOJI_ICONS.checkmark} Explore  two · done`,
+      '   Explore  three · pending',
+    ]);
   });
 
   it('keeps the columns aligned on narrow rows whose meta differs in width', () => {
@@ -314,9 +337,10 @@ describe('renderSubagentTasks', () => {
       ],
     };
     const rows = renderSubagentTasks(input, NERD_ICONS, colors).split('\n').map(l => stripAnsi(JSON.parse(l).content));
-    expect(cellOf(rows[0], 'List')).toBeGreaterThan(0);
-    expect(cellOf(rows[0], 'List')).toBe(cellOf(rows[1], 'List'));
-    for (const r of rows) expect(displayWidth(r)).toBeLessThanOrEqual(40);
+    expect(rows).toEqual([
+      `${NERD_ICONS.clock} Explore  List re… · 126k tok · running`,
+      '✓ Explore  List render … · 1k tok · done',
+    ]);
   });
 
   it('returns an empty string for an empty or missing task list', () => {

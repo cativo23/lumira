@@ -97,12 +97,27 @@ export interface SubagentColumns {
   glyph?: number;
 }
 
-const MAX_TYPE_COL = 20;
+const MAX_TYPE_COL = 28;
+const MAX_MODEL_COL = 10;
 const COL_GAP = '  ';
+
+// Text-presentation dingbats that terminals draw in one cell (East Asian Width
+// N), though displayWidth counts the whole U+2600–27BF block as two.
+const NARROW_GLYPHS = new Set([0x2713, 0x2714, 0x2717, 0x2718]);
+
+/** Terminal cells a state glyph occupies — padding glyphs to align columns needs the real width. */
+function glyphCells(glyph: string): number {
+  if (!glyph) return 0;
+  if (glyph.includes('️')) return 2;
+  let w = 0;
+  for (const ch of glyph) w += NARROW_GLYPHS.has(ch.codePointAt(0)!) ? 1 : displayWidth(ch);
+  return w;
+}
 
 /** `claude-haiku-5-5` / `claude-3-5-haiku-…` → `haiku`. Anything else has no short form and is omitted. */
 export function modelFamily(model: unknown): string {
-  return /^claude-(?:\d+-)*([a-z]+)/.exec(clean(model))?.[1] ?? '';
+  const family = /^claude-(?:\d+-)*([a-z]+)(?:-|$)/.exec(clean(model))?.[1] ?? '';
+  return family.length <= MAX_MODEL_COL ? family : '';
 }
 
 /**
@@ -151,7 +166,7 @@ export function renderSubagentContent(
   const agentType = clean(task.agentType);
   const model = modelFamily(task.model);
 
-  const iconW = icon ? displayWidth(icon) : 0;
+  const iconW = cols.glyph === undefined ? (icon ? displayWidth(icon) : 0) : glyphCells(icon);
   const glyphW = cols.glyph ?? iconW;
   const prefix = glyphW ? `${icon ? color(icon) : ''}${' '.repeat(glyphW - iconW)} ` : '';
   const prefixW = glyphW ? glyphW + 1 : 0;
@@ -205,7 +220,7 @@ function alignColumns(rows: SubagentTask[], icons: IconSet, colors: Colors, colu
   const cols = subagentColumns(rows);
   if (!cols.type && !cols.model) return cols;
   const metas = rows.map(t => rowMeta(t, icons, colors));
-  const glyph = Math.max(0, ...metas.map(m => (m.icon ? displayWidth(m.icon) : 0)));
+  const glyph = Math.max(0, ...metas.map(m => glyphCells(m.icon)));
   let { type, model } = cols;
   if (columns !== undefined && columns > 0) {
     const glyphCell = glyph ? glyph + 1 : 0;

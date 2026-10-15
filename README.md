@@ -299,7 +299,7 @@ Reading a row, left to right:
 | Part | Example | Meaning |
 |---|---|---|
 | Glyph | `󱎫` / `✓` / `⚠` / `—` | State: running (cyan), done (green), error (red), killed — stopped by you, not a failure (yellow) |
-| Agent type | `Explore`, `general-purpose`, `code-reviewer` | Which kind of subagent it is — built-in or one of your custom agents. Claude Code's own row shows this too; lumira keeps it so replacing the row doesn't lose it. Long custom names are cut at 20 columns |
+| Agent type | `Explore`, `general-purpose`, `code-reviewer` | Which kind of subagent it is — built-in or one of your custom agents. Claude Code's own row shows this too; lumira keeps it so replacing the row doesn't lose it. Names longer than 28 columns are cut |
 | Model | `haiku`, `sonnet`, `opus` | The model family the subagent runs on (dim). Claude Code's default row doesn't show it — handy when you mix models across agents |
 | Description | `reviewing auth module` | What the agent was asked to do |
 | Tokens · state | `15k tok · running` | Its running token count and state in words |
