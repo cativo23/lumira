@@ -377,6 +377,68 @@ describe('uninstall', () => {
     expect(output).toContain('Restored');
   });
 
+  it('restores only the statusline keys from the backup, keeping edits made after install', () => {
+    const backup = {
+      statusLine: { type: 'command', command: 'old-tool', padding: 0 },
+      subagentStatusLine: { type: 'command', command: 'old-agents', padding: 0 },
+      hooks: {},
+    };
+    const current = {
+      statusLine: { type: 'command', command: 'lumira', padding: 0 },
+      subagentStatusLine: { type: 'command', command: 'lumira subagent', padding: 0 },
+      hooks: { Stop: [{ hooks: [{ type: 'command', command: 'notify' }] }] },
+      permissions: { allow: ['Bash(ls)'] },
+    };
+    writeFileSync(backupPath, JSON.stringify(backup, null, 2));
+    writeFileSync(settingsPath, JSON.stringify(current, null, 2));
+    uninstall({ settingsPath });
+    const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    expect(data.statusLine.command).toBe('old-tool');
+    expect(data.subagentStatusLine.command).toBe('old-agents');
+    expect(data.hooks).toEqual(current.hooks);
+    expect(data.permissions).toEqual(current.permissions);
+    expect(existsSync(backupPath)).toBe(false);
+  });
+
+  it('removes the lumira subagent hook when the backup had none', () => {
+    const backup = { statusLine: { type: 'command', command: 'old-tool', padding: 0 } };
+    const current = {
+      statusLine: { type: 'command', command: 'lumira', padding: 0 },
+      subagentStatusLine: { type: 'command', command: 'lumira subagent', padding: 0 },
+    };
+    writeFileSync(backupPath, JSON.stringify(backup, null, 2));
+    writeFileSync(settingsPath, JSON.stringify(current, null, 2));
+    uninstall({ settingsPath });
+    const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    expect(data.statusLine.command).toBe('old-tool');
+    expect(data.subagentStatusLine).toBeUndefined();
+  });
+
+  it('keeps the backup when settings.json cannot be read, so a later uninstall can still restore it', () => {
+    const backup = { statusLine: { type: 'command', command: 'old-tool', padding: 0 } };
+    writeFileSync(backupPath, JSON.stringify(backup, null, 2));
+    writeFileSync(settingsPath, '{ broken');
+    const output = uninstall({ settingsPath });
+    expect(output).toContain('Could not parse');
+    expect(readFileSync(settingsPath, 'utf8')).toBe('{ broken');
+    expect(existsSync(backupPath)).toBe(true);
+  });
+
+  it('leaves a foreign statusLine alone', () => {
+    const current = { statusLine: { type: 'command', command: 'my-own-renderer', padding: 0 } };
+    writeFileSync(settingsPath, JSON.stringify(current, null, 2));
+    uninstall({ settingsPath });
+    const data = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    expect(data.statusLine.command).toBe('my-own-renderer');
+  });
+
+  it('does not throw when settings.json holds JSON null', () => {
+    writeFileSync(settingsPath, 'null');
+    const output = uninstall({ settingsPath });
+    expect(output).toContain('Could not parse');
+    expect(readFileSync(settingsPath, 'utf8')).toBe('null');
+  });
+
   it('removes both lumira-owned keys (statusLine + subagentStatusLine) when no backup exists', () => {
     const current = {
       statusLine: { type: 'command', command: 'npx lumira@latest', padding: 0 },

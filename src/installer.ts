@@ -439,46 +439,34 @@ export function uninstall(opts: InstallerOptions = {}): string {
     return lines.join('\n') + '\n';
   }
 
+  let uninstSettings: Record<string, unknown>;
+  try {
+    uninstSettings = readSettingsObject(settingsPath);
+  } catch (e) {
+    lines.push(warn(`Could not parse settings.json — ${(e as Error).message}`));
+    return lines.join('\n') + '\n';
+  }
+
+  // The backup is the whole settings.json from before install, so restoring
+  // the file would also undo every edit made since. Take only the keys
+  // lumira replaced.
+  let backup: Record<string, unknown> | undefined;
   if (existsSync(backupPath)) {
     try {
-      JSON.parse(readFileSync(backupPath, 'utf8'));
-      copyFileSync(backupPath, settingsPath);
-      unlinkSync(backupPath);
-      lines.push(ok('Restored previous settings from backup'));
-
-      // Remove skill from both destinations (best effort)
-      for (const root of [join(home, '.claude'), join(home, '.qwen')]) {
-        const skillFile = join(root, 'skills', 'lumira', 'SKILL.md');
-        if (existsSync(skillFile)) {
-          try {
-            unlinkSync(skillFile);
-            try { rmdirSync(dirname(skillFile)); } catch { /* dir not empty, ok */ }
-            try { rmdirSync(dirname(dirname(skillFile))); } catch { /* parent skills/ not empty, ok */ }
-          } catch { /* best effort */ }
-        }
-      }
-
-      lines.push(`\n  Restart Claude Code to apply changes.\n`);
-      return lines.join('\n') + '\n';
+      backup = readSettingsObject(backupPath);
     } catch {
       lines.push(warn('Backup file is corrupt — skipping restore'));
-      try { unlinkSync(backupPath); } catch {}
     }
   }
 
-  let uninstSettings: Record<string, unknown>;
-  try {
-    uninstSettings = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<string, unknown>;
-  } catch {
-    lines.push(warn('Could not parse settings.json'));
-    lines.push(`\n  Restart Claude Code to apply changes.\n`);
-    return lines.join('\n') + '\n';
+  for (const key of ['statusLine', 'subagentStatusLine']) {
+    if (!isLumira(uninstSettings[key])) continue;
+    if (backup?.[key] !== undefined) uninstSettings[key] = backup[key];
+    else delete uninstSettings[key];
   }
-  delete uninstSettings.statusLine;
-  // Only remove the subagent hook if it's ours — never wipe a foreign renderer.
-  if (isLumira(uninstSettings.subagentStatusLine)) delete uninstSettings.subagentStatusLine;
   writeSettingsAtomic(uninstSettings, settingsPath);
-  lines.push(ok('Removed lumira statusline from settings'));
+  try { unlinkSync(backupPath); } catch {}
+  lines.push(ok(backup ? 'Restored previous statusline from backup' : 'Removed lumira statusline from settings'));
 
   // Remove skill from both destinations (best effort)
   for (const root of [join(home, '.claude'), join(home, '.qwen')]) {
