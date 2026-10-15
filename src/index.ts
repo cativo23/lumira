@@ -143,8 +143,18 @@ Run lumira with no arguments to render the statusline (requires Claude Code stdi
   process.stdout.write(usage);
 }
 
+// install/uninstall change settings.json, so a help flag anywhere after them
+// must show help rather than run them.
+const SETTINGS_COMMANDS = new Set(['install', 'uninstall']);
+
+export function cliCommand(argv: string[]): string | undefined {
+  const cmd = argv[2];
+  if (cmd && SETTINGS_COMMANDS.has(cmd) && argv.slice(3).some(a => a === '--help' || a === '-h')) return '--help';
+  return cmd;
+}
+
 if (isDirectRun()) {
-  const cmd = process.argv[2];
+  const cmd = cliCommand(process.argv);
   if (cmd === '--help' || cmd === '-h') {
     printHelp();
     process.exit(0);
