@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync, rmdirSync, renameSync, openSync, writeSync, fsyncSync, closeSync } from 'node:fs';
+import { readFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync, rmdirSync, renameSync, openSync, writeSync, fsyncSync, closeSync, realpathSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -46,13 +46,16 @@ function refreshIntervalChanged(current, desired) {
 /** Atomically write settings.json: temp file + fsync + rename, mode 0600. */
 function writeSettingsAtomic(settings, settingsPath) {
     mkdirSync(dirname(settingsPath), { recursive: true });
-    const tmp = `${settingsPath}.${process.pid}.${Date.now()}.lumira.tmp`;
+    // Rename onto the link's target: renaming onto the link itself would
+    // replace a dotfiles symlink with a plain file.
+    const target = existsSync(settingsPath) ? realpathSync(settingsPath) : settingsPath;
+    const tmp = `${target}.${process.pid}.${Date.now()}.lumira.tmp`;
     try {
         const fd = openSync(tmp, 'wx', 0o600);
         writeSync(fd, JSON.stringify(settings, null, 2) + '\n');
         fsyncSync(fd);
         closeSync(fd);
-        renameSync(tmp, settingsPath);
+        renameSync(tmp, target);
     }
     catch (e) {
         try {
@@ -61,6 +64,26 @@ function writeSettingsAtomic(settings, settingsPath) {
         catch { }
         throw e;
     }
+}
+/**
+ * Read a settings/config file that must hold a JSON object. Anything else —
+ * a syntax error from a hand edit, `null`, an array — throws before a single
+ * byte is written: replacing it would silently drop the user's permissions,
+ * hooks and env.
+ */
+export function readSettingsObject(path) {
+    let parsed;
+    let reason = '';
+    try {
+        parsed = JSON.parse(readFileSync(path, 'utf8'));
+    }
+    catch (e) {
+        reason = ` (${e.message})`;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(`${path} is not a JSON object${reason}. Fix it and run the command again — nothing was changed.`);
+    }
+    return parsed;
 }
 // Rank a statusLine command by per-render speed (higher = faster).
 //   3 = bare `lumira` binary — always resolves to the current installed version
@@ -137,12 +160,15 @@ function isLumira(statusLine) {
     return typeof sl.command === 'string' && sl.command.includes('lumira');
 }
 // ── Prompt helper ───────────────────────────────────────────────────
-export function promptYN(question) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
+export function promptYN(question, input = process.stdin, output = process.stdout) {
+    const rl = createInterface({ input, output });
     return new Promise((resolve) => {
+        // Without this, stdin closing before an answer (a piped or CI install)
+        // leaves the promise pending and node exits 0 having done nothing.
+        rl.once('close', () => resolve(false));
         rl.question(`${question} (y/N) `, (answer) => {
-            rl.close();
             resolve(answer.trim().toLowerCase() === 'y');
+            rl.close();
         });
     });
 }
@@ -239,22 +265,12 @@ export async function install(opts = {}) {
     // doesn't waste time configuring preset/theme/icons only to decline
     // the replacement at the end.
     let settings = {};
-    if (existsSync(settingsPath)) {
-        try {
-            const parsed = JSON.parse(readFileSync(settingsPath, 'utf8'));
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                settings = parsed;
-            }
-            else {
-                lines.push(warn('Could not parse existing settings.json, creating fresh'));
-                settings = {};
-            }
-        }
-        catch {
-            lines.push(warn('Could not parse existing settings.json, creating fresh'));
-            settings = {};
-        }
-    }
+    if (existsSync(settingsPath))
+        settings = readSettingsObject(settingsPath);
+    // finalize() saves config.json after settings.json is already written —
+    // check it can be saved now, so a broken config stops the install untouched.
+    if (existsSync(configPath))
+        readSettingsObject(configPath);
     const hasForeignStatusLine = settings.statusLine && !isLumira(settings.statusLine);
     if (hasForeignStatusLine) {
         const rawCmd = settings.statusLine.command ?? 'unknown';
@@ -384,56 +400,40 @@ export function uninstall(opts = {}) {
         lines.push(ok('Nothing to uninstall — no settings.json found'));
         return lines.join('\n') + '\n';
     }
+    let uninstSettings;
+    try {
+        uninstSettings = readSettingsObject(settingsPath);
+    }
+    catch (e) {
+        lines.push(warn(`Could not parse settings.json — ${e.message}`));
+        return lines.join('\n') + '\n';
+    }
+    // The backup is the whole settings.json from before install, so restoring
+    // the file would also undo every edit made since. Take only the keys
+    // lumira replaced.
+    let backup;
     if (existsSync(backupPath)) {
         try {
-            JSON.parse(readFileSync(backupPath, 'utf8'));
-            copyFileSync(backupPath, settingsPath);
-            unlinkSync(backupPath);
-            lines.push(ok('Restored previous settings from backup'));
-            // Remove skill from both destinations (best effort)
-            for (const root of [join(home, '.claude'), join(home, '.qwen')]) {
-                const skillFile = join(root, 'skills', 'lumira', 'SKILL.md');
-                if (existsSync(skillFile)) {
-                    try {
-                        unlinkSync(skillFile);
-                        try {
-                            rmdirSync(dirname(skillFile));
-                        }
-                        catch { /* dir not empty, ok */ }
-                        try {
-                            rmdirSync(dirname(dirname(skillFile)));
-                        }
-                        catch { /* parent skills/ not empty, ok */ }
-                    }
-                    catch { /* best effort */ }
-                }
-            }
-            lines.push(`\n  Restart Claude Code to apply changes.\n`);
-            return lines.join('\n') + '\n';
+            backup = readSettingsObject(backupPath);
         }
         catch {
             lines.push(warn('Backup file is corrupt — skipping restore'));
-            try {
-                unlinkSync(backupPath);
-            }
-            catch { }
         }
     }
-    let uninstSettings;
-    try {
-        uninstSettings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    for (const key of ['statusLine', 'subagentStatusLine']) {
+        if (!isLumira(uninstSettings[key]))
+            continue;
+        if (backup?.[key] !== undefined)
+            uninstSettings[key] = backup[key];
+        else
+            delete uninstSettings[key];
     }
-    catch {
-        lines.push(warn('Could not parse settings.json'));
-        lines.push(`\n  Restart Claude Code to apply changes.\n`);
-        return lines.join('\n') + '\n';
-    }
-    delete uninstSettings.statusLine;
-    // Only remove the subagent hook if it's ours — never wipe a foreign renderer.
-    if (isLumira(uninstSettings.subagentStatusLine))
-        delete uninstSettings.subagentStatusLine;
     writeSettingsAtomic(uninstSettings, settingsPath);
-    lines.push(ok('Removed lumira statusline from settings'));
+    try {
+        unlinkSync(backupPath);
+    }
+    catch { }
+    lines.push(ok(backup ? 'Restored previous statusline from backup' : 'Removed lumira statusline from settings'));
     // Remove skill from both destinations (best effort)
     for (const root of [join(home, '.claude'), join(home, '.qwen')]) {
         const skillFile = join(root, 'skills', 'lumira', 'SKILL.md');

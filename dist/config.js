@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, renameSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { DEFAULT_CONFIG, DEFAULT_DISPLAY, DEFAULT_CONTEXT_WARNING_THRESHOLD, DEFAULT_CONTEXT_CRITICAL_THRESHOLD, POWERLINE_STYLE_NAMES, CUSTOM_COMMAND_MAX_TIMEOUT_MS, CUSTOM_COMMAND_MAX_BYTES, CUSTOM_COMMAND_MAX_ENV_ENTRIES, CUSTOM_COMMAND_MIN_REFRESH_MS, CUSTOM_COMMAND_MAX_REFRESH_MS, CUSTOM_COMMAND_VALID_LINES, CUSTOM_COMMAND_ERROR_BEHAVIORS, CUSTOM_COMMAND_COLORS, CUSTOM_COMMAND_MAX_LABEL_LEN, CUSTOM_COMMAND_MAX_VALUE_TIERS, CUSTOM_COMMAND_MAX_ICON_LEN, CUSTOM_COMMAND_MAX_DESCRIPTION_LEN, } from './types.js';
@@ -504,25 +504,32 @@ export function mergeCliFlags(config, argv) {
 }
 export function saveConfig(wizard, configPath) {
     mkdirSync(dirname(configPath), { recursive: true });
+    // A config that does not parse still holds the user's widgets and display
+    // toggles — refuse rather than replace it with the three wizard keys.
     let existing = {};
     if (existsSync(configPath)) {
+        let parsed;
+        let reason = '';
         try {
-            const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                existing = parsed;
-            }
+            parsed = JSON.parse(readFileSync(configPath, 'utf8'));
         }
-        catch {
-            existing = {};
+        catch (e) {
+            reason = ` (${e.message})`;
         }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error(`${configPath} is not a JSON object${reason}. Fix it and run the command again — nothing was changed.`);
+        }
+        existing = parsed;
     }
     const merged = { ...existing, preset: wizard.preset, icons: wizard.icons };
     if (wizard.theme !== undefined)
         merged.theme = wizard.theme;
     else
         delete merged.theme;
-    const tmp = configPath + '.tmp';
+    // Rename onto the link's target so a symlinked config.json stays a link.
+    const target = existsSync(configPath) ? realpathSync(configPath) : configPath;
+    const tmp = target + '.tmp';
     writeFileSync(tmp, JSON.stringify(merged, null, 2) + '\n', { mode: 0o600 });
-    renameSync(tmp, configPath);
+    renameSync(tmp, target);
 }
 //# sourceMappingURL=config.js.map

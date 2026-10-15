@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Git change counts when the first change is unstaged.** If the first line of `git status` was an unstaged edit (` M file`), lumira counted it as staged and showed one modified file fewer — in a repo whose only change was an unstaged edit, the statusline read 1 staged, 0 modified. The command output lost its leading space before parsing; now only the trailing newline is removed.
+- **`lumira install` no longer overwrites a `settings.json` or `config.json` it can't parse.** A hand edit with a trailing comma used to be replaced by a fresh file with no backup, losing your permissions, hooks and env (or your custom widgets and display toggles). The installer now stops before writing anything, names the file and the JSON error, and exits 1.
+- **`lumira uninstall` keeps the changes you made after installing.** It used to copy the pre-install backup back over `settings.json`, undoing every permission, hook or env edit since. It now restores only `statusLine` and `subagentStatusLine` (or removes them), and only while they still point at lumira — a statusline you set up after lumira is left alone.
+- **`lumira install --help` and `lumira uninstall --help` show help.** Only the first argument was checked, so they ran the command and edited `settings.json`.
+- **`lumira install` and `lumira uninstall` exit 1 when they fail.** Errors were printed with exit code 0, so scripts couldn't detect them.
+- **A non-interactive install no longer hangs on the "Replace with lumira?" prompt.** With another statusline configured and stdin closed (CI, a pipe), the prompt never answered and the install exited silently. Closed stdin now counts as "no"; a piped `y` still confirms.
+- **A symlinked `settings.json` or `config.json` stays a symlink.** Writing replaced the link with a plain file, detaching it from a dotfiles repo; lumira now writes to the link's target.
 
 ## [1.20.0] - 2026-10-15
 
