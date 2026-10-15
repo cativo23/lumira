@@ -91,7 +91,12 @@ export interface SubagentTask {
   /** Optional: the renderer falls back to `type` then `id` when absent. */
   name?: string;
   type?: string;
-  /** running | completed | error — but treat as open-ended; unknown states render plainly. */
+  /** Real subagent kind (`Explore`, `general-purpose`, a custom agent name) — CC ≥ 2.1.293. */
+  agentType?: string;
+  /** Resolved model id, e.g. `claude-haiku-5-5`. Omitted until CC resolves it. */
+  model?: string;
+  effort?: string | number;
+  /** running | completed | failed | killed — but treat as open-ended; unknown states render plainly. */
   status?: string;
   description?: string;
   label?: string;

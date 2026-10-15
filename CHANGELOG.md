@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Agent type and model in subagent rows.** `lumira subagent` now shows each subagent's type (`Explore`, `general-purpose`, your custom agents — CC's `agentType`, ≥ 2.1.293) and model family (`haiku`, `sonnet`, `opus`) as columns aligned across the visible rows: `󱎫 Explore  haiku  reviewing auth module · 15k tok · running`. Claude Code's own row shows the type, so replacing the row used to hide it — parallel agents with similar descriptions were indistinguishable. The model is new: CC's default row doesn't show it. On narrow rows the description gives way first, then the model, then the type. Payloads without these fields render exactly as before.
+
+### Fixed
+
+- **Subagent rows: `killed` state.** A subagent you stop now shows a yellow `—` and `killed`, instead of the raw status with no glyph. `failed` keeps rendering as an error.
+- **Subagent rows: untrusted text.** Strings from the subagent payload (description, agent type, model, name) are stripped of terminal control characters before rendering, and a non-string field no longer throws mid-render (which dropped lumira's styling for every row).
+
 ## [1.19.0] - 2026-10-15
 
 ### Added

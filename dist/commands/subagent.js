@@ -7,8 +7,8 @@
  * an id keeps CC's default rendering for that row; empty content hides it.
  *
  * Input schema (distinct from the main statusline's `RawInput`):
- *   { columns: number, tasks: [ { id, name, type, status, description,
- *                                 label, startTime, tokenCount, ... } ] }
+ *   { columns: number, tasks: [ { id, name, type, agentType, model, status,
+ *                                 description, label, startTime, tokenCount, ... } ] }
  *
  * Icon choice is by STATE, not agent type. CC's `type` field is open-ended and
  * user-defined (dozens of agent types in a real setup), so there's no stable
@@ -25,6 +25,7 @@ import { displayWidth, truncField } from '../render/text.js';
 import { resolveIcons } from '../render/icons.js';
 import { createColors, detectColorMode } from '../render/colors.js';
 import { loadConfig } from '../config.js';
+import { sanitizeTermString } from '../normalize.js';
 import { readStdin } from '../stdin.js';
 import { debug } from '../utils/debug.js';
 /** Per-state presentation: glyph + colour + human label. */
@@ -37,29 +38,62 @@ function styleFor(status, icons, colors) {
         case 'error':
         case 'failed':
             return { icon: icons.warning, color: colors.red, label: 'error' };
+        case 'killed':
+            // Stopped by the user — not a failure, so not red.
+            return { icon: icons.dash, color: colors.yellow, label: 'killed' };
         default:
             // Unknown/absent state: no glyph, dim, pass the raw status through as the
             // label so a future CC state is still legible instead of being dropped.
             return { icon: '', color: colors.dim, label: status ?? '' };
     }
 }
+const MAX_TYPE_COL = 20;
+const COL_GAP = '  ';
+/** Payload strings are untrusted: drop non-strings and terminal control chars. */
+function clean(v) {
+    return typeof v === 'string' ? sanitizeTermString(v).trim() : '';
+}
+/** `claude-haiku-5-5` → `haiku`. Anything else has no short form and is omitted. */
+export function modelFamily(model) {
+    return /^claude-([a-z]+)-/.exec(clean(model))?.[1] ?? '';
+}
+/**
+ * Column widths shared by every visible row, so the type and model line up the
+ * way CC's own panel aligns its type column. A column no row fills is absent,
+ * which keeps the output identical to pre-2.1.293 CC payloads.
+ */
+export function subagentColumns(tasks) {
+    let type = 0;
+    let model = 0;
+    for (const t of tasks) {
+        type = Math.max(type, displayWidth(clean(t?.agentType)));
+        model = Math.max(model, displayWidth(modelFamily(t?.model)));
+    }
+    return { type: Math.min(type, MAX_TYPE_COL), model };
+}
+function padTo(s, width) {
+    return s + ' '.repeat(Math.max(0, width - displayWidth(s)));
+}
 /**
  * Render the `content` string for a single subagent row:
- *   `<glyph> <name> · <tokens> · <state-label>`
+ *   `<glyph> <agent type> <model> <name> · <tokens> · <state-label>`
  *
- * The glyph and label are state-coloured; tokens are dim. When `columns` is
- * given, the name is truncated (with an ellipsis) so the visible row fits,
- * reserving width for the fixed glyph/meta first.
+ * The glyph and label are state-coloured; model and tokens are dim. When
+ * `columns` is given the row is fitted to it: the name gives way first, then
+ * the model column, then the type is shortened — the glyph and state stay.
  */
-export function renderSubagentContent(task, icons, colors, columns) {
+export function renderSubagentContent(task, icons, colors, columns, cols = subagentColumns([task])) {
     const { icon, color, label } = styleFor(task.status, icons, colors);
     // Identity fallback. CC reports every Task subagent as the generic
     // `type: "local_agent"` with no `name`, so `description` (the dispatch arg) is
     // the only field that distinguishes rows — it must win over a generic type.
-    // A *meaningful* type (a real agent_type, if CC ever exposes one) still wins
-    // over description, and an explicit `name` wins over everything.
-    const meaningfulType = task.type && task.type !== 'local_agent' ? task.type : '';
-    const name = (task.name || meaningfulType || task.description || task.id || 'agent').trim();
+    // A meaningful `type` still wins over description, and an explicit `name`
+    // wins over everything. The real agent kind (`agentType`) has its own column.
+    const rawType = clean(task.type);
+    const meaningfulType = rawType !== 'local_agent' ? rawType : '';
+    const name = clean(task.name) || meaningfulType || clean(task.description) || clean(task.id) || 'agent';
+    const agentType = clean(task.agentType);
+    const model = modelFamily(task.model);
     const tokens = Number.isFinite(task.tokenCount) ? `${formatTokens(task.tokenCount)} tok` : '';
     const prefix = icon ? `${color(icon)} ` : '';
     const prefixW = icon ? displayWidth(icon) + 1 : 0;
@@ -67,23 +101,50 @@ export function renderSubagentContent(task, icons, colors, columns) {
     // coloured version, so width math and output never drift apart.
     const metaPlain = [tokens, label].filter(Boolean);
     const metaW = metaPlain.length ? displayWidth(` · ${metaPlain.join(' · ')}`) : 0;
-    // Fit the name to whatever width is left after the fixed glyph + meta.
+    let typeW = cols.type;
+    let modelW = cols.model;
     let shownName = name;
     if (columns !== undefined && columns > 0) {
-        const budget = columns - prefixW - metaW;
+        const avail = columns - prefixW - metaW;
+        const colsW = () => (typeW ? typeW + COL_GAP.length : 0) + (modelW ? modelW + COL_GAP.length : 0);
+        let budget = avail - colsW();
+        if (budget <= 1 && modelW) {
+            modelW = 0;
+            budget = avail - colsW();
+        }
         if (budget < displayWidth(name))
             shownName = budget > 1 ? truncField(name, budget) : '';
+        // With the name gone the type is the last cell: no trailing gap to reserve.
+        if (!shownName && typeW)
+            typeW = avail > 1 ? Math.min(typeW, avail) : 0;
     }
+    // Trailing empty cells (a row without a type, when the name was dropped)
+    // would leave padding before the meta separator.
+    const cells = [];
+    if (typeW)
+        cells.push({ text: truncField(agentType, typeW), width: typeW, paint: s => s });
+    if (modelW)
+        cells.push({ text: model, width: modelW, paint: colors.dim });
+    if (shownName)
+        cells.push({ text: shownName, width: 0, paint: s => s });
+    while (cells.length && !cells[cells.length - 1].text)
+        cells.pop();
+    const head = cells
+        .map((c, i) => {
+        const text = i === cells.length - 1 ? c.text : padTo(c.text, c.width);
+        return c.text ? c.paint(text) : text;
+    })
+        .join(COL_GAP);
     const metaColored = [];
     if (tokens)
         metaColored.push(colors.dim(tokens));
     if (label)
         metaColored.push(color(label));
     const meta = metaColored.join(' · ');
-    // Avoid a dangling " · " when the name was truncated away entirely.
-    if (!shownName)
+    // Avoid a dangling " · " when every head cell was truncated away.
+    if (!head)
         return `${prefix}${meta}`.trimEnd();
-    return meta ? `${prefix}${shownName} · ${meta}` : `${prefix}${shownName}`;
+    return meta ? `${prefix}${head} · ${meta}` : `${prefix}${head}`;
 }
 /**
  * Render the full CC response: one `{ id, content }` JSON line per addressable
@@ -93,13 +154,11 @@ export function renderSubagentContent(task, icons, colors, columns) {
 export function renderSubagentTasks(input, icons, colors) {
     const tasks = Array.isArray(input?.tasks) ? input.tasks : [];
     const columns = Number.isFinite(input?.columns) ? input.columns : undefined;
-    const lines = [];
-    for (const task of tasks) {
-        if (!task || typeof task.id !== 'string' || task.id === '')
-            continue;
-        lines.push(JSON.stringify({ id: task.id, content: renderSubagentContent(task, icons, colors, columns) }));
-    }
-    return lines.join('\n');
+    const rows = tasks.filter(t => t && typeof t.id === 'string' && t.id !== '');
+    const cols = subagentColumns(rows);
+    return rows
+        .map(task => JSON.stringify({ id: task.id, content: renderSubagentContent(task, icons, colors, columns, cols) }))
+        .join('\n');
 }
 /**
  * Wire stdin → config → render. Reuses the main `readStdin` (its only schema
