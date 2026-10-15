@@ -13,6 +13,9 @@ export function readJsonObject(path: string): Record<string, unknown> {
   } catch (e) {
     throw new Error(`${path} could not be read (${(e as Error).message}). ${fix}`);
   }
+  // An empty file holds nothing to lose. writeTarget can also leave one
+  // behind (the placeholder for a dangling link) if the write after it fails.
+  if (text.trim() === '') return {};
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -45,7 +48,11 @@ export function writeTarget(path: string): string {
     // missing target through the link, then ask for its real path. A missing
     // directory or a loop throws here, exactly as the write would. The native
     // realpath is required: the JS one also applies `..` textually.
-    closeSync(openSync(path, 'a', 0o600));
+    try {
+      closeSync(openSync(path, 'a', 0o600));
+    } catch (e) {
+      throw new Error(`The target of the symlink ${path} could not be created (${(e as Error).message}). Create its directory or fix the link.`);
+    }
     return realpathSync.native(path);
   }
 }

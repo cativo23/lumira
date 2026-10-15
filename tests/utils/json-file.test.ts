@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { writeTarget } from '../../src/utils/json-file.js';
+import { readJsonObject, writeTarget } from '../../src/utils/json-file.js';
 
 describe('writeTarget', () => {
   let dir: string;
@@ -54,9 +54,26 @@ describe('writeTarget', () => {
     expect(writeTarget(join(dir, 'home', 'settings.json'))).toBe(join(realpathSync(dir), 'real', 'b.json'));
   });
 
+  it('names the symlink when its target directory does not exist', () => {
+    symlinkSync('missing-dir/settings.json', join(dir, 'settings.json'));
+    expect(() => writeTarget(join(dir, 'settings.json'))).toThrow(/symlink .*settings\.json.*could not be created/);
+  });
+
   it('refuses a symlink loop', () => {
     symlinkSync('y.json', join(dir, 'x.json'));
     symlinkSync('x.json', join(dir, 'y.json'));
     expect(() => writeTarget(join(dir, 'x.json'))).toThrow(/ELOOP/);
+  });
+});
+
+describe('readJsonObject', () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'lumira-json-file-')); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it.each([[''], ['  \n']])('treats an empty file (%j) as an empty object — it holds nothing to lose', (contents) => {
+    const p = join(dir, 'settings.json');
+    writeFileSync(p, contents);
+    expect(readJsonObject(p)).toEqual({});
   });
 });
