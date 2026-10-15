@@ -121,7 +121,7 @@ export function renderSubagentContent(task, icons, colors, columns, cols = subag
     const agentType = clean(task.agentType);
     const model = modelFamily(task.model);
     const iconW = cols.glyph === undefined ? (icon ? displayWidth(icon) : 0) : glyphCells(icon);
-    const glyphW = cols.glyph ?? iconW;
+    const glyphW = Math.max(cols.glyph ?? iconW, iconW);
     const prefix = glyphW ? `${icon ? color(icon) : ''}${' '.repeat(glyphW - iconW)} ` : '';
     const prefixW = glyphW ? glyphW + 1 : 0;
     let typeW = cols.type;

@@ -223,6 +223,11 @@ describe('renderSubagentContent', () => {
       expect(modelFamily('claude-opus')).toBe('opus');
     });
 
+    it('does not throw when a caller passes a glyph width narrower than the glyph', () => {
+      const out = renderSubagentContent(real({ status: 'completed' }), EMOJI_ICONS, colors, undefined, { type: 7, model: 0, glyph: 1 });
+      expect(stripAnsi(out)).toBe(`${EMOJI_ICONS.checkmark} Explore  List render module files · 26k tok · done`);
+    });
+
     it('survives non-string fields from an untrusted payload', () => {
       const bad = real({ agentType: 42 as unknown as string, model: {} as unknown as string, description: 7 as unknown as string });
       expect(stripAnsi(renderSubagentContent(bad, NO_ICONS, colors))).toBe('a8818445eb7e50e79 · 26k tok · running');
