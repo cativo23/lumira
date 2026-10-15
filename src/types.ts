@@ -95,7 +95,6 @@ export interface SubagentTask {
   agentType?: string;
   /** Resolved model id, e.g. `claude-haiku-5-5`. Omitted until CC resolves it. */
   model?: string;
-  effort?: string | number;
   /** running | completed | failed | killed — but treat as open-ended; unknown states render plainly. */
   status?: string;
   description?: string;

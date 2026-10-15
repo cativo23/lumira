@@ -304,7 +304,7 @@ Reading a row, left to right:
 | Description | `reviewing auth module` | What the agent was asked to do |
 | Tokens · state | `15k tok · running` | Its running token count and state in words |
 
-The type and model line up as columns across all visible rows, so parallel agents are easy to tell apart. Both need Claude Code ≥ 2.1.293; on older versions (or when Claude Code hasn't resolved the model yet) the column is simply left out. When a row doesn't fit, the description is shortened first, then the model is dropped, then the type is shortened — the state glyph and label always stay.
+The type and model line up as columns across all visible rows, so parallel agents are easy to tell apart. Both need Claude Code ≥ 2.1.293: on older versions the columns are left out and rows look exactly as before, and a row that lacks one (say, a model Claude Code hasn't resolved yet) leaves that cell blank. Only `claude-…` model ids have a family to show. When rows don't fit, the descriptions are shortened first, then the model column is dropped, then the type column is narrowed — decided once for all rows so they stay aligned, and the state glyph and label always stay.
 
 The **description** column falls back through `name → a meaningful type → description → id`: Claude Code reports every Task subagent with the generic `type: "local_agent"` and no `name`, so in practice it's the `description`. Rows respect your `icons` (`nerd`/`emoji`/`none`) and `colors.mode` config, and text from the payload is stripped of terminal control characters before it's drawn.
 

@@ -46,12 +46,18 @@ export interface SubagentCommandOpts {
   colorMode?: ColorMode;
 }
 
+/** Payload strings are untrusted: drop non-strings and terminal control chars. */
+function clean(v: unknown): string {
+  return typeof v === 'string' ? sanitizeTermString(v).trim() : '';
+}
+
 /** Per-state presentation: glyph + colour + human label. */
 function styleFor(
-  status: string | undefined,
+  rawStatus: unknown,
   icons: IconSet,
   colors: Colors,
 ): { icon: string; color: (s: string) => string; label: string } {
+  const status = clean(rawStatus);
   switch (status) {
     case 'running':
       return { icon: icons.clock, color: colors.cyan, label: 'running' };
@@ -61,32 +67,42 @@ function styleFor(
     case 'failed':
       return { icon: icons.warning, color: colors.red, label: 'error' };
     case 'killed':
-      // Stopped by the user — not a failure, so not red.
       return { icon: icons.dash, color: colors.yellow, label: 'killed' };
     default:
       // Unknown/absent state: no glyph, dim, pass the raw status through as the
       // label so a future CC state is still legible instead of being dropped.
-      return { icon: '', color: colors.dim, label: status ?? '' };
+      return { icon: '', color: colors.dim, label: status };
   }
 }
 
-/** Widths of the agent-type and model columns; 0 means the column is absent. */
+/** State styling plus the plain meta (`tokens · state`) and its width. */
+function rowMeta(task: SubagentTask, icons: IconSet, colors: Colors) {
+  const style = styleFor(task.status, icons, colors);
+  const tokens = Number.isFinite(task.tokenCount) ? `${formatTokens(task.tokenCount as number)} tok` : '';
+  // Plain (uncoloured) meta used both for measuring and for assembling the
+  // coloured version, so width math and output never drift apart.
+  const metaPlain = [tokens, style.label].filter(Boolean);
+  const metaW = metaPlain.length ? displayWidth(` · ${metaPlain.join(' · ')}`) : 0;
+  return { ...style, tokens, metaW };
+}
+
+/**
+ * Widths of the agent-type and model columns (0 = absent). `glyph`, when set,
+ * pads every row's state glyph to the same width so the columns after it line
+ * up; when unset each row keeps its own glyph width, as before columns existed.
+ */
 export interface SubagentColumns {
   type: number;
   model: number;
+  glyph?: number;
 }
 
 const MAX_TYPE_COL = 20;
 const COL_GAP = '  ';
 
-/** Payload strings are untrusted: drop non-strings and terminal control chars. */
-function clean(v: unknown): string {
-  return typeof v === 'string' ? sanitizeTermString(v).trim() : '';
-}
-
-/** `claude-haiku-5-5` → `haiku`. Anything else has no short form and is omitted. */
+/** `claude-haiku-5-5` / `claude-3-5-haiku-…` → `haiku`. Anything else has no short form and is omitted. */
 export function modelFamily(model: unknown): string {
-  return /^claude-([a-z]+)-/.exec(clean(model))?.[1] ?? '';
+  return /^claude-(?:\d+-)*([a-z]+)/.exec(clean(model))?.[1] ?? '';
 }
 
 /**
@@ -123,7 +139,7 @@ export function renderSubagentContent(
   columns?: number,
   cols: SubagentColumns = subagentColumns([task]),
 ): string {
-  const { icon, color, label } = styleFor(task.status, icons, colors);
+  const { icon, color, label, tokens, metaW } = rowMeta(task, icons, colors);
   // Identity fallback. CC reports every Task subagent as the generic
   // `type: "local_agent"` with no `name`, so `description` (the dispatch arg) is
   // the only field that distinguishes rows — it must win over a generic type.
@@ -134,15 +150,11 @@ export function renderSubagentContent(
   const name = clean(task.name) || meaningfulType || clean(task.description) || clean(task.id) || 'agent';
   const agentType = clean(task.agentType);
   const model = modelFamily(task.model);
-  const tokens = Number.isFinite(task.tokenCount) ? `${formatTokens(task.tokenCount as number)} tok` : '';
 
-  const prefix = icon ? `${color(icon)} ` : '';
-  const prefixW = icon ? displayWidth(icon) + 1 : 0;
-
-  // Plain (uncoloured) meta used both for measuring and for assembling the
-  // coloured version, so width math and output never drift apart.
-  const metaPlain = [tokens, label].filter(Boolean);
-  const metaW = metaPlain.length ? displayWidth(` · ${metaPlain.join(' · ')}`) : 0;
+  const iconW = icon ? displayWidth(icon) : 0;
+  const glyphW = cols.glyph ?? iconW;
+  const prefix = glyphW ? `${icon ? color(icon) : ''}${' '.repeat(glyphW - iconW)} ` : '';
+  const prefixW = glyphW ? glyphW + 1 : 0;
 
   let typeW = cols.type;
   let modelW = cols.model;
@@ -185,6 +197,27 @@ export function renderSubagentContent(
 }
 
 /**
+ * Column layout shared by all rows. Rows differ in glyph and meta width, so
+ * deciding per row whether to drop the model or shorten the type would break
+ * the alignment — the decision is made once, against the tightest row.
+ */
+function alignColumns(rows: SubagentTask[], icons: IconSet, colors: Colors, columns?: number): SubagentColumns {
+  const cols = subagentColumns(rows);
+  if (!cols.type && !cols.model) return cols;
+  const metas = rows.map(t => rowMeta(t, icons, colors));
+  const glyph = Math.max(0, ...metas.map(m => (m.icon ? displayWidth(m.icon) : 0)));
+  let { type, model } = cols;
+  if (columns !== undefined && columns > 0) {
+    const glyphCell = glyph ? glyph + 1 : 0;
+    const avail = Math.min(...metas.map(m => columns - glyphCell - m.metaW));
+    const colsW = () => (type ? type + COL_GAP.length : 0) + (model ? model + COL_GAP.length : 0);
+    if (avail - colsW() <= 1 && model) model = 0;
+    if (avail - colsW() <= 1 && type) type = avail > 1 ? Math.min(type, avail) : 0;
+  }
+  return { type, model, glyph };
+}
+
+/**
  * Render the full CC response: one `{ id, content }` JSON line per addressable
  * task. Tasks without an id are skipped (CC keys rows by id, so a row we can't
  * address can't be overridden). Empty/missing task list → empty string.
@@ -193,7 +226,7 @@ export function renderSubagentTasks(input: SubagentInput, icons: IconSet, colors
   const tasks = Array.isArray(input?.tasks) ? input.tasks : [];
   const columns = Number.isFinite(input?.columns) ? (input.columns as number) : undefined;
   const rows = tasks.filter(t => t && typeof t.id === 'string' && t.id !== '');
-  const cols = subagentColumns(rows);
+  const cols = alignColumns(rows, icons, colors, columns);
   return rows
     .map(task => JSON.stringify({ id: task.id, content: renderSubagentContent(task, icons, colors, columns, cols) }))
     .join('\n');
