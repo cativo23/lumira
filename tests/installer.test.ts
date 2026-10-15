@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, symlinkSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Readable, Writable } from 'node:stream';
@@ -221,6 +221,17 @@ describe('install', () => {
       expect(readFileSync(settingsPath, 'utf8')).toBe(settings);
       expect(readFileSync(configPath, 'utf8')).toBe('{ "customWidgets": { ');
       expect(existsSync(backupPath)).toBe(false);
+    });
+
+    it('writes through a symlinked settings.json and keeps the link', async () => {
+      const dotfiles = join(dir, 'dotfiles');
+      mkdirSync(dotfiles);
+      const target = join(dotfiles, 'settings.json');
+      writeFileSync(target, JSON.stringify({ hooks: {} }));
+      symlinkSync(target, settingsPath);
+      await install(baseOpts());
+      expect(lstatSync(settingsPath).isSymbolicLink()).toBe(true);
+      expect(JSON.parse(readFileSync(target, 'utf8')).statusLine.command).toBe('npx lumira');
     });
 
     it('creates parent directories that do not exist', async () => {

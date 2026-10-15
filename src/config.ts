@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, renameSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import {
@@ -559,7 +559,9 @@ export function saveConfig(wizard: WizardResult, configPath: string): void {
   if (wizard.theme !== undefined) merged.theme = wizard.theme;
   else delete merged.theme;
 
-  const tmp = configPath + '.tmp';
+  // Rename onto the link's target so a symlinked config.json stays a link.
+  const target = existsSync(configPath) ? realpathSync(configPath) : configPath;
+  const tmp = target + '.tmp';
   writeFileSync(tmp, JSON.stringify(merged, null, 2) + '\n', { mode: 0o600 });
-  renameSync(tmp, configPath);
+  renameSync(tmp, target);
 }

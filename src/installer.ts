@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync, rmdirSync, renameSync, openSync, writeSync, fsyncSync, closeSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync, rmdirSync, renameSync, openSync, writeSync, fsyncSync, closeSync, realpathSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -50,13 +50,16 @@ function refreshIntervalChanged(current: unknown, desired: number | undefined): 
 /** Atomically write settings.json: temp file + fsync + rename, mode 0600. */
 function writeSettingsAtomic(settings: Record<string, unknown>, settingsPath: string): void {
   mkdirSync(dirname(settingsPath), { recursive: true });
-  const tmp = `${settingsPath}.${process.pid}.${Date.now()}.lumira.tmp`;
+  // Rename onto the link's target: renaming onto the link itself would
+  // replace a dotfiles symlink with a plain file.
+  const target = existsSync(settingsPath) ? realpathSync(settingsPath) : settingsPath;
+  const tmp = `${target}.${process.pid}.${Date.now()}.lumira.tmp`;
   try {
     const fd = openSync(tmp, 'wx', 0o600);
     writeSync(fd, JSON.stringify(settings, null, 2) + '\n');
     fsyncSync(fd);
     closeSync(fd);
-    renameSync(tmp, settingsPath);
+    renameSync(tmp, target);
   } catch (e) {
     try { unlinkSync(tmp); } catch {}
     throw e;
