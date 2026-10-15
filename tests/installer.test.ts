@@ -309,6 +309,24 @@ describe('install', () => {
       expect(readSettings().subagentStatusLine).toBeUndefined();
     });
 
+    it('leaves no backup and no changed settings when cancelled at the subagent prompt', async () => {
+      const foreign = JSON.stringify({ statusLine: { type: 'command', command: 'other-tool', padding: 0 } });
+      writeFileSync(settingsPath, foreign);
+      const stdin = createMockStdin(true);
+      const promise = install({
+        ...baseOpts(), stdin, stdout: createMockStdout(),
+        hasGlobalBin: () => true,
+        confirm: async (q: string) => {
+          if (q.includes('subagent')) throw new Error('Cancelled — settings.json was not changed.');
+          return true;
+        },
+      });
+      await completeWizard(stdin);
+      await expect(promise).rejects.toThrow(/Cancelled/);
+      expect(readFileSync(settingsPath, 'utf8')).toBe(foreign);
+      expect(existsSync(backupPath)).toBe(false);
+    });
+
     it('never prompts or registers in a non-TTY install', async () => {
       await install(baseOpts());
       expect(readSettings().subagentStatusLine).toBeUndefined();

@@ -177,7 +177,7 @@ export function promptYN(
     // Ctrl+C cancels the whole install: answering "no" would carry on and
     // write settings.json at the global-install or subagent prompts.
     rl.once('SIGINT', () => {
-      reject(new Error('Cancelled — nothing was changed.'));
+      reject(new Error('Cancelled — settings.json and config.json were not changed.'));
       rl.close();
     });
     // Without this, stdin closing before an answer (a piped or CI install)
@@ -402,11 +402,10 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
       if (added || needsWrite) writeSettingsAtomic(settings, settingsPath);
       return finalize();
     }
-  } else if (settings.statusLine) {
-    // Foreign statusLine already confirmed above — back it up and replace.
-    copyFileSync(settingsPath, backupPath);
-    lines.push(ok(`Backed up existing settings → ${DIM}settings.json.lumira.bak${RST}`));
   }
+  // Foreign statusLine already confirmed above — back it up just before the
+  // write, after the last prompt, so a Ctrl+C there leaves no stray backup.
+  const backUpForeign = !existingIsLumira && !!settings.statusLine;
 
   // `desiredRefreshInterval` undefined means config.json doesn't manage this
   // field — fall back to whatever refreshInterval is already on the existing
@@ -417,6 +416,10 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
     : undefined;
   settings.statusLine = makeStatusLine(resolvedCmd, desiredRefreshInterval ?? existingRefreshInterval);
   await maybeRegisterSubagent({ settings, baseCmd: resolvedCmd, confirm, isTTY: !!stdin?.isTTY, lines });
+  if (backUpForeign) {
+    copyFileSync(settingsPath, backupPath);
+    lines.push(ok(`Backed up existing settings → ${DIM}settings.json.lumira.bak${RST}`));
+  }
   writeSettingsAtomic(settings, settingsPath);
   lines.push(ok(existingIsLumira
     ? `Upgraded statusline command → ${DIM}${resolvedCmd}${RST} (faster)`
