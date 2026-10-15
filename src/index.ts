@@ -163,10 +163,17 @@ if (isDirectRun()) {
     process.exit(0);
   } else if (cmd === 'install') {
     const configPath = join(homedir(), '.config', 'lumira', 'config.json');
-    install({ configPath }).then(o => process.stdout.write(o)).catch(e => process.stderr.write(`Install error: ${e.message}\n`));
+    install({ configPath }).then(o => process.stdout.write(o)).catch(e => {
+      process.stderr.write(`Install error: ${e.message}\n`);
+      process.exitCode = 1;
+    });
   } else if (cmd === 'uninstall') {
-    const o = uninstall();
-    process.stdout.write(o);
+    try {
+      process.stdout.write(uninstall());
+    } catch (e) {
+      process.stderr.write(`Uninstall error: ${(e as Error).message}\n`);
+      process.exitCode = 1;
+    }
   } else if (cmd === 'themes') {
     const r = runThemesCommand(process.argv, process.stdout.columns);
     if (r.stdout) process.stdout.write(r.stdout);
