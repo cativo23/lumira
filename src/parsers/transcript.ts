@@ -99,13 +99,16 @@ export function extractToolTarget(toolName: string, input: Record<string, unknow
       case 'Glob': case 'Grep':
         return input.pattern as string | undefined;
       case 'Bash': {
-        const cmd = (input.command as string) || '';
+        if (typeof input.command !== 'string') return undefined;
+        const cmd = input.command;
         return cmd.length > 30 ? cmd.slice(0, 30) + '...' : cmd;
       }
       default: return undefined;
     }
   })();
-  return typeof raw === 'string' ? sanitizeTermString(raw) : raw;
+  // A non-string target (a malformed transcript) would reach line 3's string
+  // helpers and blank the statusline.
+  return typeof raw === 'string' ? sanitizeTermString(raw) : undefined;
 }
 
 // Allowed roots, snapshotted once at module load. We include both the

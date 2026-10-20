@@ -38,6 +38,15 @@ describe('parseTranscript', () => {
       expect(result.agents[0].type).toBe('unknown');
     });
 
+    it.each([
+      ['Read', { file_path: 5 }],
+      ['Write', { path: { x: 1 } }],
+      ['Grep', { pattern: 7 }],
+      ['Bash', { command: 5 }],
+    ])('gives a %s call with a non-string target no target, instead of a non-string', (tool, input) => {
+      expect(extractToolTarget(tool, input)).toBeUndefined();
+    });
+
     it('drops a TodoWrite item whose content is not a string', async () => {
       const result = await parseTranscript(write([
         { type: 'tool_use', id: 't1', name: 'TodoWrite', input: { todos: [
