@@ -925,3 +925,73 @@ describe('isQwenInput discriminant', () => {
     expect(isQwenInput(claude as any)).toBe(false);
   });
 });
+
+describe('malformed payload fields', () => {
+  const asRaw = (p: unknown) => p as ClaudeCodeInput;
+
+  it('treats a non-string as an empty string in sanitizeTermString', () => {
+    expect(sanitizeTermString(undefined)).toBe('');
+    expect(sanitizeTermString(5)).toBe('');
+    expect(sanitizeTermString({})).toBe('');
+  });
+
+  it.each([
+    ['a missing session_id', { session_id: undefined }],
+    ['a numeric cwd', { cwd: 5 }],
+    ['a numeric version', { version: 2 }],
+    ['a numeric vim mode', { vim: { mode: 1 } }],
+    ['an object session_name', { session_name: { x: 1 } }],
+    ['a numeric model display_name', { model: { display_name: 7 } }],
+  ])('still normalizes a Claude payload with %s', (_label, patch) => {
+    expect(() => normalize(asRaw({ ...claudeInput, ...patch }))).not.toThrow();
+  });
+
+  it('normalizes a Qwen payload that has no context_window', () => {
+    const { context_window: _omit, ...noWindow } = qwenInput as unknown as Record<string, unknown>;
+    const result = normalize(noWindow as unknown as QwenInput);
+    expect(result.platform).toBe('qwen-code');
+    expect(result.context.windowSize).toBeUndefined();
+  });
+
+  it.each([
+    ['a string', 'abc'],
+    ['Infinity', 1e999],
+    ['NaN', Number.NaN],
+  ])('drops a rate-limit resets_at that is %s', (_label, resetsAt) => {
+    const result = normalize(asRaw({
+      ...claudeInput,
+      rate_limits: {
+        five_hour: { used_percentage: 40, resets_at: resetsAt },
+        seven_day: { used_percentage: 10, resets_at: resetsAt },
+      },
+    }));
+    expect(result.rateLimits?.fiveHour).toEqual({ usedPercentage: 40, resetsAt: undefined });
+    expect(result.rateLimits?.sevenDay).toEqual({ usedPercentage: 10, resetsAt: undefined });
+  });
+
+  it('falls back to workspace.current_dir when cwd is not a string', () => {
+    const result = normalize(asRaw({ ...claudeInput, cwd: 5, workspace: { current_dir: '/from/workspace' } }));
+    expect(result.cwd).toBe('/from/workspace');
+  });
+
+  it.each([
+    ['an object', { x: 1 }],
+    ['a string', 'ZZZ'],
+    ['an escape sequence', '\u001b]8;;https://evil\u0007X'],
+  ])('treats a lines-changed count that is %s as zero', (_label, bad) => {
+    const claude = normalize(asRaw({ ...claudeInput, cost: { ...claudeInput.cost, total_lines_added: bad, total_lines_removed: 3 } }));
+    expect(claude.linesAdded).toBe(0);
+    expect(claude.linesRemoved).toBe(3);
+    const qwen = normalize({ ...qwenInput, metrics: { ...qwenInput.metrics, files: { total_lines_added: bad, total_lines_removed: 2 } } } as unknown as QwenInput);
+    expect(qwen.linesAdded).toBe(0);
+    expect(qwen.linesRemoved).toBe(2);
+  });
+
+  it('keeps a finite numeric resets_at', () => {
+    const result = normalize(asRaw({
+      ...claudeInput,
+      rate_limits: { five_hour: { used_percentage: 40, resets_at: 1792162868 } },
+    }));
+    expect(result.rateLimits?.fiveHour?.resetsAt).toBe(1792162868);
+  });
+});

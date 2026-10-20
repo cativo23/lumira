@@ -6,6 +6,27 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 describe('main', () => {
+  it.each([
+    ['a numeric cwd', { cwd: 5, workspace: { current_dir: '/from/workspace' } }, '/from/workspace'],
+    ['an object cwd', { cwd: {}, workspace: { current_dir: '/from/workspace' } }, '/from/workspace'],
+  ])('passes a string cwd to the parsers when the payload has %s', async (_label, patch, expected) => {
+    const sample = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'sample-input.json'), 'utf8'));
+    const seen: string[] = [];
+    const output = await main({
+      readStdin: async () => ({ ...sample, ...patch }),
+      parseGit: async (cwd: string) => { seen.push(cwd); return { branch: 'main', staged: 0, modified: 0, untracked: 0 }; },
+      parseTranscript: async () => EMPTY_TRANSCRIPT,
+      getTokenSpeed: () => null,
+      getMemoryInfo: () => ({ usedBytes: 8e9, totalBytes: 16e9, percentage: 50 }),
+      getGsdInfo: () => null,
+      getMcpInfo: (cwd: string) => { seen.push(cwd); return null; },
+      getTermCols: () => 120,
+      loadConfig: () => ({ ...DEFAULT_CONFIG, display: { ...DEFAULT_DISPLAY } }),
+    });
+    expect(seen).toEqual([expected, expected]);
+    expect(stripAnsi(output)).toContain('Opus 4.6');
+  });
+
   it('produces multi-line output', async () => {
     const sample = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'sample-input.json'), 'utf8'));
     const output = await main({

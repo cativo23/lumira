@@ -22,7 +22,7 @@ import { runCustomRefreshFromStdin } from './commands/custom-refresh.js';
 import { runWidgetCommand } from './commands/widget.js';
 import { runSubagentCommand } from './commands/subagent.js';
 import { EMPTY_TRANSCRIPT } from './types.js';
-import { normalize } from './normalize.js';
+import { normalize, payloadCwd } from './normalize.js';
 const defaultDeps = {
     readStdin: () => defaultReadStdin(process.stdin),
     parseGit: (cwd) => parseGitStatus(cwd),
@@ -58,7 +58,7 @@ export async function main(overrides = {}) {
     const configLoader = deps.loadConfig ?? loadConfig;
     const config = mergeCliFlags(configLoader(), process.argv);
     const input = await deps.readStdin();
-    const cwd = input.cwd || input.workspace?.current_dir || process.cwd();
+    const cwd = payloadCwd(input);
     const [git, transcript] = await Promise.all([
         deps.parseGit(cwd),
         input.transcript_path ? deps.parseTranscript(input.transcript_path) : Promise.resolve(EMPTY_TRANSCRIPT),
