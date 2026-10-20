@@ -5,6 +5,7 @@ import { EMPTY_GIT, EMPTY_TRANSCRIPT, DEFAULT_CONFIG, DEFAULT_DISPLAY } from '..
 import type { ClaudeCodeInput, GsdInfo, RenderContext } from '../../src/types.js';
 import { NERD_ICONS } from '../../src/render/icons.js';
 import { normalize } from '../../src/normalize.js';
+import { displayWidth, safeCols } from '../../src/render/text.js';
 
 const c = createColors('named');
 
@@ -109,5 +110,38 @@ describe('renderLine4', () => {
       const ctx = makeCtx(null, { customCommands: [] });
       expect(renderLine4(ctx, c)).toBe('');
     });
+  });
+});
+
+describe('renderLine4 — fitting the terminal width', () => {
+  const longTask = 'Implement the priority based eviction for the classic statusline renderer';
+  const gsd: GsdInfo = { currentTask: longTask, hasResume: true, updateAvailable: true, staleHooks: true };
+  const widget = [{ id: 'w', text: 'WIDGET', state: 'ok' as const, line: 4 as const, ansi: false }];
+  const render = (cols: number) => stripAnsi(renderLine4(makeCtx(gsd, { cols, customCommands: widget }), c));
+
+  it('is unchanged when everything fits', () => {
+    const out = render(300);
+    expect(out).toContain(longTask.slice(0, 40));
+    expect(out).toContain('WIDGET');
+  });
+
+  it.each([60, 80, 100, 120])('never exceeds the usable width at %i cols when the warnings fit', (cols) => {
+    expect(displayWidth(render(cols))).toBeLessThanOrEqual(safeCols(cols));
+  });
+
+  it('drops custom widgets before shortening the task, and always keeps the warnings', () => {
+    // 121 cells with the widget, 114 without: at 122 cols (118 usable) only the widget goes.
+    const out = render(122);
+    expect(out).not.toContain('WIDGET');
+    expect(out).toContain('Implement the priority based eviction');
+    expect(out).toContain('⬆ /gsd:update');
+    expect(out).toContain('stale hooks');
+  });
+
+  it('keeps the update and stale-hooks warnings even at 80 cols', () => {
+    const out = render(80);
+    expect(out).toContain('⬆ /gsd:update');
+    expect(out).toContain('stale hooks');
+    expect(out).toContain('GSD');
   });
 });

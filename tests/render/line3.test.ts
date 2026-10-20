@@ -5,6 +5,7 @@ import { EMPTY_GIT, EMPTY_TRANSCRIPT, DEFAULT_CONFIG, DEFAULT_DISPLAY } from '..
 import type { ClaudeCodeInput, ToolEntry, TodoEntry, AgentEntry, RenderContext } from '../../src/types.js';
 import { NERD_ICONS } from '../../src/render/icons.js';
 import { normalize } from '../../src/normalize.js';
+import { displayWidth, safeCols } from '../../src/render/text.js';
 
 const c = createColors('named');
 
@@ -190,5 +191,59 @@ describe('renderLine3 — agent count', () => {
       expect(out).toContain('Bash');
       expect(out).toContain('MINE');
     });
+  });
+});
+
+describe('renderLine3 — fitting the terminal width', () => {
+  // A busy session: 2 running tools, 4 completed groups, 1 agent, todos, 1 widget.
+  const busy = () => ({
+    ...EMPTY_TRANSCRIPT,
+    tools: [
+      completedTool('Read'), completedTool('Read'), completedTool('Read'),
+      completedTool('Edit'), completedTool('Edit'),
+      completedTool('Bash'), completedTool('Bash'),
+      completedTool('Grep'),
+      runningTool('Edit', '/src/render/line3.ts'),
+      runningTool('Task'),
+    ],
+    agents: [{ id: 'a', type: 'Explore', status: 'running', startTime: new Date() } as AgentEntry],
+    todos: [todo('1', 'a', 'completed'), todo('2', 'b', 'in_progress'), todo('3', 'c', 'pending')],
+  });
+  const widget = [{ id: 'w', text: 'WIDGET', state: 'ok' as const, line: 3 as const, ansi: false }];
+  const ag = (line: string) => line.replace('1 agent', `${NERD_ICONS.bolt}1 agent`);
+  const render = (cols: number) =>
+    stripAnsi(renderLine3(makeCtx({ transcript: busy(), customCommands: widget, cols }), c));
+
+  it('is unchanged when everything fits', () => {
+    expect(render(200)).toBe(ag(
+      '◐ Edit: /src/render/l… ◐ Task ✓ Read ×3 ✓ Edit ×2 ✓ Bash ×2 ✓ Grep │ 1 agent │ ███░░░░░░░ 1/3 ◐ 1 ○ 1 │ WIDGET',
+    ));
+  });
+
+  it.each([60, 70, 80, 90, 100, 110])('never exceeds the usable width at %i cols', (cols) => {
+    expect(displayWidth(render(cols))).toBeLessThanOrEqual(safeCols(cols));
+  });
+
+  it('drops pieces in order: widget, least-used groups, 2nd running tool, agents, todos', () => {
+    const full = render(200);
+    const steps = [
+      '◐ Edit: /src/render/l… ◐ Task ✓ Read ×3 ✓ Edit ×2 ✓ Bash ×2 ✓ Grep │ 1 agent │ ███░░░░░░░ 1/3 ◐ 1 ○ 1',
+      '◐ Edit: /src/render/l… ◐ Task ✓ Read ×3 ✓ Edit ×2 ✓ Bash ×2 │ 1 agent │ ███░░░░░░░ 1/3 ◐ 1 ○ 1',
+      '◐ Edit: /src/render/l… ◐ Task ✓ Read ×3 ✓ Edit ×2 │ 1 agent │ ███░░░░░░░ 1/3 ◐ 1 ○ 1',
+      '◐ Edit: /src/render/l… ◐ Task ✓ Read ×3 │ 1 agent │ ███░░░░░░░ 1/3 ◐ 1 ○ 1',
+      '◐ Edit: /src/render/l… ◐ Task │ 1 agent │ ███░░░░░░░ 1/3 ◐ 1 ○ 1',
+      '◐ Edit: /src/render/l… │ 1 agent │ ███░░░░░░░ 1/3 ◐ 1 ○ 1',
+      '◐ Edit: /src/render/l… │ ███░░░░░░░ 1/3 ◐ 1 ○ 1',
+      '◐ Edit: /src/render/l…',
+    ];
+    const seen = new Set<string>();
+    for (let cols = displayWidth(full) + 4; cols >= 30; cols--) seen.add(render(cols));
+    for (const step of steps) expect(seen).toContain(ag(step));
+  });
+
+  it('shortens the first running tool when nothing else is left', () => {
+    const out = render(14);
+    expect(displayWidth(out)).toBeLessThanOrEqual(safeCols(14));
+    expect(out.startsWith('◐ Edit')).toBe(true);
   });
 });
