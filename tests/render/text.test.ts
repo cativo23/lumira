@@ -216,3 +216,13 @@ describe('displayWidth — wide scripts outside the BMP', () => {
     expect(displayWidth(text)).toBe(2);
   });
 });
+
+describe('displayWidth — remaining wide SMP blocks', () => {
+  it.each([
+    ['Khitan U+18CFF', '\u{18CFF}'],
+    ['Tai Xuan Jing U+1D300', '\u{1D300}'],
+    ['counting rod U+1D360', '\u{1D360}'],
+  ])('counts %s as 2 cells', (_label, text) => {
+    expect(displayWidth(text)).toBe(2);
+  });
+});

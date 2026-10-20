@@ -173,3 +173,19 @@ describe('renderLine4 — task vs warning wording', () => {
     expect(out).not.toContain('re-run installer');
   });
 });
+
+describe('renderLine4 — very narrow terminals', () => {
+  it.each([9, 12, 16, 21])('shows both warnings in some form at %i cols', (cols) => {
+    const gsd: GsdInfo = { updateAvailable: true, staleHooks: true };
+    const out = stripAnsi(renderLine4(makeCtx(gsd, { cols }), c));
+    expect(displayWidth(out)).toBeLessThanOrEqual(safeCols(cols));
+    expect(out).toContain('⬆');
+    expect(out).toContain('⚠');
+  });
+
+  it('shows a lone stale-hooks warning instead of just the GSD label at 9 cols', () => {
+    const out = stripAnsi(renderLine4(makeCtx({ staleHooks: true }, { cols: 9 }), c));
+    expect(out).toContain('⚠');
+    expect(displayWidth(out)).toBeLessThanOrEqual(safeCols(9));
+  });
+});

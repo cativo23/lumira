@@ -14,6 +14,8 @@ export function renderLine4(ctx: RenderContext, c: Colors): string {
   const warnings: string[] = [];
   // Same warnings, short enough for a narrow terminal. They are never dropped.
   const compactWarnings: string[] = [];
+  // Last resort on a very narrow terminal: the glyphs alone still say "act".
+  const iconWarnings: string[] = [];
 
   // GSD widget — only emit when GSD has something to display. Text and glyphs
   // mirror GSD's own statusline (gsd-statusline.js) so the integration reads
@@ -30,12 +32,14 @@ export function renderLine4(ctx: RenderContext, c: Colors): string {
     if (gsd.updateAvailable) {
       warnings.push(c.yellow('⬆ /gsd:update'));
       compactWarnings.push(c.yellow('⬆ /gsd:update'));
+      iconWarnings.push(c.yellow('⬆'));
     }
     if (gsd.staleHooks) {
       warnings.push(gsd.devInstall
         ? c.yellow('⚠ dev install — re-run installer to sync hooks')
         : c.red('⚠ stale hooks — run /gsd:update'));
       compactWarnings.push(gsd.devInstall ? c.yellow('⚠ dev install') : c.red('⚠ stale hooks'));
+      iconWarnings.push(gsd.devInstall ? c.yellow('⚠') : c.red('⚠'));
     }
   }
 
@@ -52,11 +56,12 @@ export function renderLine4(ctx: RenderContext, c: Colors): string {
 
   // Fit order when the line is too wide: custom widgets go first (last one
   // first), then the task shrinks, then the warnings switch to their short
-  // form, and only then do the task and the resume mark go. The update and stale-hooks
+  // form, and only then do the task and the resume mark go; on a very narrow
+  // terminal the GSD label goes and the warnings shrink to their glyphs. The update and stale-hooks
   // warnings are actionable: they are shortened, never dropped.
   const safe = safeCols(ctx.cols);
-  const build = (taskText: string, withResume: boolean, widgetCount: number, warn: string[] = warnings) => {
-    const parts = [...head];
+  const build = (taskText: string, withResume: boolean, widgetCount: number, warn: string[] = warnings, withHead = true) => {
+    const parts = withHead ? [...head] : [];
     if (taskText) parts.push(c.bold(`${icons.hammer} ${taskText}`));
     if (withResume && resume) parts.push(resume);
     parts.push(...warn, ...widgets.slice(0, widgetCount));
@@ -78,8 +83,13 @@ export function renderLine4(ctx: RenderContext, c: Colors): string {
       if (room >= MIN_TASK_CELLS) return build(truncField(task, room), true, 0, warn);
     }
   }
-  for (const line of [build('', true, 0), build('', false, 0), build('', true, 0, compactWarnings), build('', false, 0, compactWarnings)]) {
+  for (const line of [
+    build('', true, 0), build('', false, 0),
+    build('', true, 0, compactWarnings), build('', false, 0, compactWarnings),
+    build('', false, 0, compactWarnings, false),
+    build('', false, 0, iconWarnings), build('', false, 0, iconWarnings, false),
+  ]) {
     if (displayWidth(line) <= safe) return line;
   }
-  return truncAnsi(build('', false, 0, compactWarnings), safe);
+  return truncAnsi(build('', false, 0, iconWarnings, false), safe);
 }

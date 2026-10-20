@@ -21,9 +21,9 @@ const WIDE_CJK = [
     [0x4E00, 0xA4CF], [0xA960, 0xA97F], [0xAC00, 0xD7A3], [0xF900, 0xFAFF],
     [0xFE10, 0xFE19], [0xFE30, 0xFE6F], [0xFF01, 0xFF60], [0xFFE0, 0xFFE6],
     // Outside the BMP and below the >= U+1F000 catch-all: Tangut, Khitan,
-    // Nushu and the historic / small kana blocks.
-    [0x16FE0, 0x16FE4], [0x16FF0, 0x16FF1], [0x17000, 0x18CD5], [0x18D00, 0x18D08],
-    [0x1AFF0, 0x1AFFE], [0x1B000, 0x1B2FB],
+    // Nushu, the historic / small kana blocks, Tai Xuan Jing and counting rods.
+    [0x16FE0, 0x16FE4], [0x16FF0, 0x16FF1], [0x17000, 0x18CD5], [0x18CFF, 0x18D08],
+    [0x1AFF0, 0x1AFFE], [0x1B000, 0x1B2FB], [0x1D300, 0x1D356], [0x1D360, 0x1D376],
 ];
 const VS16 = 0xFE0F;
 function inRanges(cp, ranges) {
@@ -49,7 +49,7 @@ function charWidth(cp) {
         return 2;
     if (cp >= 0x2300 && cp <= 0x2BFF)
         return inRanges(cp, WIDE_SYMBOLS) ? 2 : 1;
-    if (cp >= 0x1100 && cp <= 0x1B2FB)
+    if (cp >= 0x1100 && cp <= 0x1D376)
         return inRanges(cp, WIDE_CJK) ? 2 : 1;
     return 1;
 }
