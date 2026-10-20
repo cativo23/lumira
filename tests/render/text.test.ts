@@ -128,3 +128,46 @@ describe('padLine', () => {
     expect(displayWidth(result)).toBe(20);
   });
 });
+
+describe('displayWidth — East Asian wide scripts', () => {
+  it.each([
+    ['Hiragana', 'あいう', 6],
+    ['Katakana', 'カタカナ', 8],
+    ['Hangul syllables', '한국어', 6],
+    ['Hangul Jamo (U+1100)', 'ᄀ', 2],
+    ['enclosed CJK (U+3231)', '㈱', 2],
+    ['CJK Ext-A (U+3400)', '㐀', 2],
+    ['CJK compatibility (U+F900)', '豈', 2],
+    ['CJK radicals (U+2E80)', '⺀', 2],
+    ['fullwidth yen (U+FFE5)', '￥', 2],
+    ['fullwidth A (U+FF21)', 'Ａ', 2],
+    ['CJK unified, already wide', '中文', 4],
+  ])('counts %s as 2 cells per character', (_label, text, width) => {
+    expect(displayWidth(text)).toBe(width);
+  });
+
+  it.each([
+    ['halfwidth katakana (U+FF71)', 'ｱ', 1],
+    ['halfwidth katakana run', 'ｱｲｳ', 3],
+    ['halfwidth arrow (U+FFE9)', '￩', 1],
+    ['circled number on black square (U+3248, ambiguous)', '㉈', 1],
+  ])('counts %s as 1 cell', (_label, text, width) => {
+    expect(displayWidth(text)).toBe(width);
+  });
+
+  it('truncates Japanese by cells, not code points', () => {
+    const out = truncField('あいうえおか', 7);
+    expect(displayWidth(out)).toBeLessThanOrEqual(7);
+    expect(out).toBe('あいう…');
+  });
+});
+
+describe('fitSegments — empty left side', () => {
+  it('keeps the right-hand segments when there is nothing on the left', () => {
+    expect(fitSegments([], ['[NORMAL]', '^high'], ' | ', 80)).toBe('[NORMAL] | ^high');
+  });
+
+  it('drops right-hand segments from the end until they fit', () => {
+    expect(fitSegments([], ['aaaaaaaaaa', 'bbbbbbbbbb'], ' | ', 20)).toBe('aaaaaaaaaa');
+  });
+});
