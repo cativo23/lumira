@@ -88,6 +88,9 @@ export function renderLine4(ctx, c) {
         build('', true, 0, compactWarnings), build('', false, 0, compactWarnings),
         build('', false, 0, compactWarnings, false),
         build('', false, 0, iconWarnings), build('', false, 0, iconWarnings, false),
+        // One or two free cells: the glyphs touching, then the most urgent alone
+        // (stale hooks / dev install is pushed last, so it is the last glyph).
+        iconWarnings.join(''), iconWarnings[iconWarnings.length - 1] ?? '',
     ]) {
         if (displayWidth(line) <= safe)
             return line;

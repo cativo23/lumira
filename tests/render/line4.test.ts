@@ -189,3 +189,20 @@ describe('renderLine4 — very narrow terminals', () => {
     expect(displayWidth(out)).toBeLessThanOrEqual(safeCols(9));
   });
 });
+
+describe('renderLine4 — one or two free cells', () => {
+  it('shows both glyphs side by side at 6 cols (2 usable)', () => {
+    const out = stripAnsi(renderLine4(makeCtx({ updateAvailable: true, staleHooks: true }, { cols: 6 }), c));
+    expect(out).toBe('⬆⚠');
+  });
+
+  it('shows the stale-hooks glyph, the more urgent one, at 5 cols (1 usable)', () => {
+    const out = stripAnsi(renderLine4(makeCtx({ updateAvailable: true, staleHooks: true }, { cols: 5 }), c));
+    expect(out).toBe('⚠');
+  });
+
+  it('shows the update glyph alone at 5 cols when it is the only warning', () => {
+    const out = stripAnsi(renderLine4(makeCtx({ updateAvailable: true }, { cols: 5 }), c));
+    expect(out).toBe('⬆');
+  });
+});
