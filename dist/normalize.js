@@ -23,8 +23,16 @@ export function isQwenInput(input) {
  * - U+2028/2029 — line/paragraph separators
  * - U+2066-2069 — directional isolates
  */
+// Payload fields are untrusted: a non-string (a future CC/Qwen shape change, a
+// malformed payload) becomes '' instead of throwing and blanking the statusline.
 export function sanitizeTermString(s) {
+    if (typeof s !== 'string')
+        return '';
     return s.replace(/[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2028\u2029\u2066-\u2069]/g, '');
+}
+// A reset time that isn't a finite number would render as "NaN%" / "NaNs".
+function finiteOrUndefined(v) {
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 /** Allowed values for the reasoning effort level field (CC ≥ 2.1.x). */
 const VALID_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -111,7 +119,7 @@ export function normalize(input) {
     const modelName = typeof input.model === 'string'
         ? input.model
         : (input.model?.display_name ?? '');
-    const cwd = input.cwd || input.workspace?.current_dir || process.cwd();
+    const cwd = [input.cwd, input.workspace?.current_dir].find((d) => typeof d === 'string' && d !== '') ?? process.cwd();
     // Token unification — context_window is required by type but can be absent
     // from malformed payloads; default to an empty object so all field accesses
     // degrade gracefully rather than crashing with "Cannot read properties of undefined".
@@ -204,10 +212,10 @@ export function normalize(input) {
     if (claude?.rate_limits) {
         rateLimits = {
             fiveHour: claude.rate_limits.five_hour
-                ? { usedPercentage: claude.rate_limits.five_hour.used_percentage, resetsAt: claude.rate_limits.five_hour.resets_at }
+                ? { usedPercentage: claude.rate_limits.five_hour.used_percentage, resetsAt: finiteOrUndefined(claude.rate_limits.five_hour.resets_at) }
                 : undefined,
             sevenDay: claude.rate_limits.seven_day
-                ? { usedPercentage: claude.rate_limits.seven_day.used_percentage, resetsAt: claude.rate_limits.seven_day.resets_at }
+                ? { usedPercentage: claude.rate_limits.seven_day.used_percentage, resetsAt: finiteOrUndefined(claude.rate_limits.seven_day.resets_at) }
                 : undefined,
         };
     }
@@ -269,9 +277,7 @@ export function normalize(input) {
         },
         context: {
             usedPercentage: contextWindow.used_percentage ?? 0,
-            windowSize: qwen
-                ? qwen.context_window.context_window_size
-                : claude?.context_window?.context_window_size,
+            windowSize: contextWindow.context_window_size,
             realUsedPercentage,
             nearAutoCompact,
         },

@@ -925,3 +925,55 @@ describe('isQwenInput discriminant', () => {
     expect(isQwenInput(claude as any)).toBe(false);
   });
 });
+
+describe('malformed payload fields', () => {
+  const asRaw = (p: unknown) => p as ClaudeCodeInput;
+
+  it('treats a non-string as an empty string in sanitizeTermString', () => {
+    expect(sanitizeTermString(undefined as unknown as string)).toBe('');
+    expect(sanitizeTermString(5 as unknown as string)).toBe('');
+    expect(sanitizeTermString({} as unknown as string)).toBe('');
+  });
+
+  it.each([
+    ['a missing session_id', { session_id: undefined }],
+    ['a numeric cwd', { cwd: 5 }],
+    ['a numeric version', { version: 2 }],
+    ['a numeric vim mode', { vim: { mode: 1 } }],
+    ['an object session_name', { session_name: { x: 1 } }],
+    ['a numeric model display_name', { model: { display_name: 7 } }],
+  ])('still normalizes a Claude payload with %s', (_label, patch) => {
+    expect(() => normalize(asRaw({ ...claudeInput, ...patch }))).not.toThrow();
+  });
+
+  it('normalizes a Qwen payload that has no context_window', () => {
+    const { context_window: _omit, ...noWindow } = qwenInput as unknown as Record<string, unknown>;
+    const result = normalize(noWindow as unknown as QwenInput);
+    expect(result.platform).toBe('qwen-code');
+    expect(result.context.windowSize).toBeUndefined();
+  });
+
+  it.each([
+    ['a string', 'abc'],
+    ['Infinity', 1e999],
+    ['NaN', Number.NaN],
+  ])('drops a rate-limit resets_at that is %s', (_label, resetsAt) => {
+    const result = normalize(asRaw({
+      ...claudeInput,
+      rate_limits: {
+        five_hour: { used_percentage: 40, resets_at: resetsAt },
+        seven_day: { used_percentage: 10, resets_at: resetsAt },
+      },
+    }));
+    expect(result.rateLimits?.fiveHour).toEqual({ usedPercentage: 40, resetsAt: undefined });
+    expect(result.rateLimits?.sevenDay).toEqual({ usedPercentage: 10, resetsAt: undefined });
+  });
+
+  it('keeps a finite numeric resets_at', () => {
+    const result = normalize(asRaw({
+      ...claudeInput,
+      rate_limits: { five_hour: { used_percentage: 40, resets_at: 1792162868 } },
+    }));
+    expect(result.rateLimits?.fiveHour?.resetsAt).toBe(1792162868);
+  });
+});

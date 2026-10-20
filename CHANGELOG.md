@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A malformed field in the Claude Code or Qwen payload no longer blanks the statusline.** A missing `session_id`, or a `cwd`, `version`, vim mode, session name or model name that isn't a string, threw inside the sanitizer and the statusline printed nothing but an error. Those fields now degrade to empty. A Qwen payload without `context_window` crashed the same way and now renders without a window size.
+- **A rate-limit reset time that isn't a number no longer shows `NaN%`.** A `resets_at` that is a string, `Infinity` or `NaN` is now ignored, so the pace badge and countdown are hidden instead of rendering `NaN`.
+
 ## [1.20.1] - 2026-10-15
 
 ### Fixed
