@@ -1,5 +1,4 @@
-import { truncField, displayWidth, safeCols } from './text.js';
-import { stripAnsi } from './colors.js';
+import { truncField, truncAnsi, displayWidth, safeCols } from './text.js';
 import { SEP, EXCLUDED_TOOLS, getCustomCommandsForLine, renderCustomCommand } from './shared.js';
 function buildToolPieces(tools, c, ic) {
     const relevant = tools.filter(t => !EXCLUDED_TOOLS.has(t.name));
@@ -57,10 +56,10 @@ export function renderLine3(ctx, c) {
     const pieces = display.tools === false ? [] : buildToolPieces(tools, c, icons);
     const agentsPart = display.agents === false ? '' : buildAgentsPart(agents, c, icons);
     if (agentsPart)
-        pieces.push({ group: 'agents', text: agentsPart, priority: 85, shorten: max => truncField(stripAnsi(agentsPart), max) });
+        pieces.push({ group: 'agents', text: agentsPart, priority: 85, shorten: max => truncAnsi(agentsPart, max) });
     const todosPart = display.todos === false ? '' : buildTodosPart(todos, c, icons);
     if (todosPart)
-        pieces.push({ group: 'todos', text: todosPart, priority: 90, shorten: max => truncField(stripAnsi(todosPart), max) });
+        pieces.push({ group: 'todos', text: todosPart, priority: 90, shorten: max => truncAnsi(todosPart, max) });
     // Custom commands (issue #143 phase 3) — appended after the core line3
     // widgets so they sit at the end of the line and are visible without
     // disrupting the tools/agents/todos cluster. Lowest priority: they evict
@@ -68,7 +67,7 @@ export function renderLine3(ctx, c) {
     getCustomCommandsForLine(ctx.customCommands, 3).forEach((out, i) => {
         const seg = renderCustomCommand(out, c);
         if (seg)
-            pieces.push({ group: `custom-${i}`, text: seg, priority: 10 - i / 100, shorten: max => truncField(stripAnsi(seg), max) });
+            pieces.push({ group: `custom-${i}`, text: seg, priority: 10 - i / 100, shorten: max => truncAnsi(seg, max) });
     });
     return fitPieces(pieces, safeCols(ctx.cols));
 }

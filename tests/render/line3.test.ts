@@ -247,3 +247,22 @@ describe('renderLine3 — fitting the terminal width', () => {
     expect(out.startsWith('◐ Edit')).toBe(true);
   });
 });
+
+describe('renderLine3 — shortening keeps colours', () => {
+  const tc = createColors('truecolor');
+
+  it('keeps the colours of a single ansi custom widget it has to shorten', () => {
+    const widget = [{ id: 'w', text: '\x1b[32m' + 'ok '.repeat(40) + '\x1b[0m', state: 'ok' as const, line: 3 as const, ansi: true }];
+    const out = renderLine3(makeCtx({ customCommands: widget, cols: 80 }), tc);
+    expect(out).toContain('\x1b[32m');
+    expect(displayWidth(out)).toBeLessThanOrEqual(safeCols(80));
+  });
+
+  it('keeps the coloured todo bar when the todos are shortened', () => {
+    const transcript = { ...EMPTY_TRANSCRIPT, todos: [todo('1', 'a', 'completed'), todo('2', 'b', 'in_progress'), todo('3', 'c', 'pending')] };
+    const full = renderLine3(makeCtx({ transcript, cols: 200 }), tc);
+    const short = renderLine3(makeCtx({ transcript, cols: 24 }), tc);
+    expect(displayWidth(short)).toBeLessThanOrEqual(safeCols(24));
+    expect(short.startsWith(full.slice(0, full.indexOf('█') + 1))).toBe(true);
+  });
+});

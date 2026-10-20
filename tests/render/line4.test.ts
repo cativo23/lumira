@@ -145,3 +145,31 @@ describe('renderLine4 — fitting the terminal width', () => {
     expect(out).toContain('GSD');
   });
 });
+
+describe('renderLine4 — warnings on a narrow terminal', () => {
+  it.each([
+    [false, 40], [false, 50], [true, 40], [true, 56], [true, 60], [true, 66],
+  ])('compacts the warnings (devInstall %s) to fit %i cols, never dropping them', (devInstall, cols) => {
+    const gsd: GsdInfo = { updateAvailable: true, staleHooks: true, devInstall, hasResume: true };
+    const out = stripAnsi(renderLine4(makeCtx(gsd, { cols }), c));
+    expect(displayWidth(out)).toBeLessThanOrEqual(safeCols(cols));
+    expect(out).toContain('⬆ /gsd:update');
+    expect(out).toContain(devInstall ? '⚠ dev install' : '⚠ stale hooks');
+  });
+
+  it('keeps the full warning text when it fits', () => {
+    const gsd: GsdInfo = { updateAvailable: true, staleHooks: true, devInstall: true };
+    expect(stripAnsi(renderLine4(makeCtx(gsd, { cols: 120 }), c))).toContain('re-run installer to sync hooks');
+  });
+});
+
+describe('renderLine4 — task vs warning wording', () => {
+  it('keeps the task and uses the short warning when only that fits', () => {
+    const gsd: GsdInfo = { currentTask: 'Long GSD task here', updateAvailable: true, staleHooks: true, devInstall: true, hasResume: true };
+    const out = stripAnsi(renderLine4(makeCtx(gsd, { cols: 66 }), c));
+    expect(displayWidth(out)).toBeLessThanOrEqual(safeCols(66));
+    expect(out).toContain('Long GSD task here');
+    expect(out).toContain('⚠ dev install');
+    expect(out).not.toContain('re-run installer');
+  });
+});

@@ -1,4 +1,4 @@
-import { truncField, displayWidth, safeCols } from './text.js';
+import { truncField, truncAnsi, displayWidth, safeCols } from './text.js';
 import { getCustomCommandsForLine, renderCustomCommand } from './shared.js';
 import type { Colors } from './colors.js';
 import type { RenderContext } from '../types.js';
@@ -12,6 +12,8 @@ export function renderLine4(ctx: RenderContext, c: Colors): string {
   let task = '';
   let resume = '';
   const warnings: string[] = [];
+  // Same warnings, short enough for a narrow terminal. They are never dropped.
+  const compactWarnings: string[] = [];
 
   // GSD widget — only emit when GSD has something to display. Text and glyphs
   // mirror GSD's own statusline (gsd-statusline.js) so the integration reads
@@ -25,11 +27,15 @@ export function renderLine4(ctx: RenderContext, c: Colors): string {
     // an active `.continue-here`/spec resume file — a cue that work can be picked
     // up where it left off. Cyan: informational, distinct from update/stale warns.
     if (gsd.hasResume) resume = c.cyan('↩');
-    if (gsd.updateAvailable) warnings.push(c.yellow('⬆ /gsd:update'));
+    if (gsd.updateAvailable) {
+      warnings.push(c.yellow('⬆ /gsd:update'));
+      compactWarnings.push(c.yellow('⬆ /gsd:update'));
+    }
     if (gsd.staleHooks) {
       warnings.push(gsd.devInstall
         ? c.yellow('⚠ dev install — re-run installer to sync hooks')
         : c.red('⚠ stale hooks — run /gsd:update'));
+      compactWarnings.push(gsd.devInstall ? c.yellow('⚠ dev install') : c.red('⚠ stale hooks'));
     }
   }
 
@@ -45,14 +51,15 @@ export function renderLine4(ctx: RenderContext, c: Colors): string {
   }
 
   // Fit order when the line is too wide: custom widgets go first (last one
-  // first), then the task shrinks, then the task and the resume mark go. The
-  // update and stale-hooks warnings are actionable and always stay.
+  // first), then the task shrinks, then the warnings switch to their short
+  // form, and only then do the task and the resume mark go. The update and stale-hooks
+  // warnings are actionable: they are shortened, never dropped.
   const safe = safeCols(ctx.cols);
-  const build = (taskText: string, withResume: boolean, widgetCount: number) => {
+  const build = (taskText: string, withResume: boolean, widgetCount: number, warn: string[] = warnings) => {
     const parts = [...head];
     if (taskText) parts.push(c.bold(`${icons.hammer} ${taskText}`));
     if (withResume && resume) parts.push(resume);
-    parts.push(...warnings, ...widgets.slice(0, widgetCount));
+    parts.push(...warn, ...widgets.slice(0, widgetCount));
     return parts.join(' ');
   };
   const fullTask = task ? truncField(task, 60) : '';
@@ -61,11 +68,18 @@ export function renderLine4(ctx: RenderContext, c: Colors): string {
     const line = build(fullTask, true, n);
     if (displayWidth(line) <= safe) return line;
   }
-  if (task) {
-    const room = safe - displayWidth(build('', true, 0)) - displayWidth(`${icons.hammer} `) - 1;
-    if (room >= MIN_TASK_CELLS) return build(truncField(task, room), true, 0);
+  // The task is worth more than the long wording of a warning, so try the short
+  // warnings before giving the task up.
+  for (const warn of [warnings, compactWarnings]) {
+    const line = build(fullTask, true, 0, warn);
+    if (displayWidth(line) <= safe) return line;
+    if (task) {
+      const room = safe - displayWidth(build('', true, 0, warn)) - displayWidth(`${icons.hammer} `) - 1;
+      if (room >= MIN_TASK_CELLS) return build(truncField(task, room), true, 0, warn);
+    }
   }
-  const withoutTask = build('', true, 0);
-  if (displayWidth(withoutTask) <= safe) return withoutTask;
-  return build('', false, 0);
+  for (const line of [build('', true, 0), build('', false, 0), build('', true, 0, compactWarnings), build('', false, 0, compactWarnings)]) {
+    if (displayWidth(line) <= safe) return line;
+  }
+  return truncAnsi(build('', false, 0, compactWarnings), safe);
 }

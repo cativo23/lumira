@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { displayWidth, truncField, truncatePath, fitSegments, padLine, safeCols } from '../../src/render/text.js';
+import { displayWidth, truncField, truncAnsi, truncatePath, fitSegments, padLine, safeCols } from '../../src/render/text.js';
 
 describe('displayWidth', () => {
   it('measures plain ASCII', () => { expect(displayWidth('hello')).toBe(5); });
@@ -169,5 +169,50 @@ describe('fitSegments — empty left side', () => {
 
   it('drops right-hand segments from the end until they fit', () => {
     expect(fitSegments([], ['aaaaaaaaaa', 'bbbbbbbbbb'], ' | ', 20)).toBe('aaaaaaaaaa');
+  });
+});
+
+describe('truncAnsi', () => {
+  it('returns the string unchanged when it fits', () => {
+    expect(truncAnsi('\x1b[32mok\x1b[0m', 5)).toBe('\x1b[32mok\x1b[0m');
+  });
+
+  it('keeps colour codes and counts only visible cells', () => {
+    const out = truncAnsi('\x1b[32mhello world\x1b[0m', 6);
+    expect(out).toBe('\x1b[32mhello…\x1b[0m');
+    expect(displayWidth(out)).toBe(6);
+  });
+
+  it('keeps escapes that come after the cut point out of the result', () => {
+    const out = truncAnsi('\x1b[32mabc\x1b[0m \x1b[33mdefghij\x1b[0m', 5);
+    expect(out).toBe('\x1b[32mabc\x1b[0m …\x1b[0m');
+  });
+
+  it('closes an OSC 8 hyperlink it cuts through', () => {
+    const out = truncAnsi('\x1b]8;;https://x.test\x1b\\long link text\x1b]8;;\x1b\\', 6);
+    expect(out).toBe('\x1b]8;;https://x.test\x1b\\long …\x1b]8;;\x1b\\\x1b[0m');
+  });
+
+  it('measures wide characters', () => {
+    expect(displayWidth(truncAnsi('\x1b[1mあいうえ\x1b[0m', 5))).toBeLessThanOrEqual(5);
+  });
+});
+
+describe('displayWidth — Yijing hexagrams (wide since Unicode 16)', () => {
+  it('counts U+4DC0 as 2 cells', () => {
+    expect(displayWidth('䷀')).toBe(2);
+  });
+});
+
+describe('displayWidth — wide scripts outside the BMP', () => {
+  it.each([
+    ['Hentaigana (U+1B001)', '\u{1B001}'],
+    ['small kana (U+1B150)', '\u{1B150}'],
+    ['Kana Extended-B (U+1AFF0)', '\u{1AFF0}'],
+    ['Tangut (U+17000)', '\u{17000}'],
+    ['Tangut component (U+18800)', '\u{18800}'],
+    ['ideographic iteration mark (U+16FE3)', '\u{16FE3}'],
+  ])('counts %s as 2 cells', (_label, text) => {
+    expect(displayWidth(text)).toBe(2);
   });
 });

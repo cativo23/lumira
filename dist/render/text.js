@@ -1,4 +1,4 @@
-import { stripAnsi } from './colors.js';
+import { stripAnsi, ANSI_SEQUENCE } from './colors.js';
 // East Asian Wide (W) code points inside the symbol blocks U+2300–24FF,
 // 25A0–25FF, 2600–27BF and 2B00–2BFF (Unicode 16). Everything else in those
 // blocks is N or A and terminals draw it in one cell — ✓ ○ ◐ ⚠ ▶ ❯ ❄ included.
@@ -14,12 +14,16 @@ const WIDE_SYMBOLS = [
     [0x2B1B, 0x2B1C], [0x2B50, 0x2B50], [0x2B55, 0x2B55],
 ];
 // East Asian Wide (W) and Fullwidth (F) ranges for the CJK scripts, Unicode 16
-// UAX #11. Ambiguous code points inside them stay 1 (U+3248–324F, the halfwidth
+// UAX #11, up to the >= U+1F000 catch-all below. Ambiguous code points inside them stay 1 (U+3248–324F, the halfwidth
 // forms FF61–FFDC / FFE8–FFEE), matching Western terminals as #209 does.
 const WIDE_CJK = [
-    [0x1100, 0x115F], [0x2E80, 0x303E], [0x3041, 0x3247], [0x3250, 0x4DBF],
+    [0x1100, 0x115F], [0x2E80, 0x303E], [0x3041, 0x3247], [0x3250, 0x4DFF],
     [0x4E00, 0xA4CF], [0xA960, 0xA97F], [0xAC00, 0xD7A3], [0xF900, 0xFAFF],
     [0xFE10, 0xFE19], [0xFE30, 0xFE6F], [0xFF01, 0xFF60], [0xFFE0, 0xFFE6],
+    // Outside the BMP and below the >= U+1F000 catch-all: Tangut, Khitan,
+    // Nushu and the historic / small kana blocks.
+    [0x16FE0, 0x16FE4], [0x16FF0, 0x16FF1], [0x17000, 0x18CD5], [0x18D00, 0x18D08],
+    [0x1AFF0, 0x1AFFE], [0x1B000, 0x1B2FB],
 ];
 const VS16 = 0xFE0F;
 function inRanges(cp, ranges) {
@@ -45,7 +49,7 @@ function charWidth(cp) {
         return 2;
     if (cp >= 0x2300 && cp <= 0x2BFF)
         return inRanges(cp, WIDE_SYMBOLS) ? 2 : 1;
-    if (cp >= 0x1100 && cp <= 0xFFE6)
+    if (cp >= 0x1100 && cp <= 0x1B2FB)
         return inRanges(cp, WIDE_CJK) ? 2 : 1;
     return 1;
 }
@@ -92,6 +96,50 @@ export function truncField(str, max) {
         w += cw;
     }
     return result + '\u2026';
+}
+/**
+ * truncField for coloured text: counts only visible cells and keeps the escape
+ * sequences that precede the kept text, so a shortened segment keeps its
+ * colour. Escapes after the cut are dropped; the result ends with a reset, and
+ * closes an OSC 8 hyperlink it cut through.
+ */
+export function truncAnsi(str, max) {
+    if (displayWidth(str) <= max)
+        return str;
+    const seq = new RegExp(ANSI_SEQUENCE.source, 'y');
+    let result = '';
+    let pending = '';
+    let sawEscape = false;
+    let linkOpen = false;
+    let w = 0;
+    let i = 0;
+    while (i < str.length) {
+        seq.lastIndex = i;
+        const m = seq.exec(str);
+        if (m) {
+            pending += m[0];
+            sawEscape = true;
+            const link = /^\x1b\]8;[^;]*;([\s\S]*?)(?:\x07|\x1b\\)$/.exec(m[0]);
+            if (link)
+                linkOpen = link[1] !== '';
+            i += m[0].length;
+            continue;
+        }
+        let unit = String.fromCodePoint(str.codePointAt(i));
+        let next = i + unit.length;
+        if (str.codePointAt(next) === VS16) {
+            unit += '\uFE0F';
+            next += 1;
+        }
+        const cw = displayWidth(unit);
+        if (w + cw + 1 > max)
+            break; // +1 for ellipsis
+        result += pending + unit;
+        pending = '';
+        w += cw;
+        i = next;
+    }
+    return result + '…' + (linkOpen ? '\x1b]8;;\x1b\\' : '') + (sawEscape ? '\x1b[0m' : '');
 }
 export function truncatePath(str, maxLen = 20) {
     if (!str)
