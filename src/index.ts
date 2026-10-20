@@ -24,7 +24,7 @@ import { runSubagentCommand } from './commands/subagent.js';
 import type { Dependencies, RawInput } from './types.js';
 import type { NormalizedInput } from './normalize.js';
 import { EMPTY_TRANSCRIPT } from './types.js';
-import { normalize } from './normalize.js';
+import { normalize, payloadCwd } from './normalize.js';
 
 const defaultDeps: Dependencies = {
   readStdin: () => defaultReadStdin(process.stdin),
@@ -63,7 +63,7 @@ export async function main(overrides: Partial<Dependencies> = {}): Promise<strin
   const configLoader = deps.loadConfig ?? loadConfig;
   const config = mergeCliFlags(configLoader(), process.argv);
   const input = await deps.readStdin();
-  const cwd = input.cwd || input.workspace?.current_dir || process.cwd();
+  const cwd = payloadCwd(input);
 
   const [git, transcript] = await Promise.all([
     deps.parseGit(cwd),

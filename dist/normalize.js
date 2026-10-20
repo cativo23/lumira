@@ -30,7 +30,12 @@ export function sanitizeTermString(s) {
         return '';
     return s.replace(/[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2028\u2029\u2066-\u2069]/g, '');
 }
-// A reset time that isn't a finite number would render as "NaN%" / "NaNs".
+/** The session's working directory: the first non-empty string of `cwd` / `workspace.current_dir`. */
+export function payloadCwd(input) {
+    return [input.cwd, input.workspace?.current_dir].find((d) => typeof d === 'string' && d !== '') ?? process.cwd();
+}
+// A count or reset time that isn't a finite number would render as garbage
+// ("NaN%", "+[object Object]", or a raw escape sequence).
 function finiteOrUndefined(v) {
     return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
@@ -119,7 +124,7 @@ export function normalize(input) {
     const modelName = typeof input.model === 'string'
         ? input.model
         : (input.model?.display_name ?? '');
-    const cwd = [input.cwd, input.workspace?.current_dir].find((d) => typeof d === 'string' && d !== '') ?? process.cwd();
+    const cwd = payloadCwd(input);
     // Token unification — context_window is required by type but can be absent
     // from malformed payloads; default to an empty object so all field accesses
     // degrade gracefully rather than crashing with "Cannot read properties of undefined".
@@ -200,12 +205,12 @@ export function normalize(input) {
     let linesAdded = 0;
     let linesRemoved = 0;
     if (qwen) {
-        linesAdded = qwen.metrics.files?.total_lines_added ?? 0;
-        linesRemoved = qwen.metrics.files?.total_lines_removed ?? 0;
+        linesAdded = finiteOrUndefined(qwen.metrics.files?.total_lines_added) ?? 0;
+        linesRemoved = finiteOrUndefined(qwen.metrics.files?.total_lines_removed) ?? 0;
     }
     else if (claude) {
-        linesAdded = claude.cost?.total_lines_added ?? 0;
-        linesRemoved = claude.cost?.total_lines_removed ?? 0;
+        linesAdded = finiteOrUndefined(claude.cost?.total_lines_added) ?? 0;
+        linesRemoved = finiteOrUndefined(claude.cost?.total_lines_removed) ?? 0;
     }
     // Rate limits (Claude only)
     let rateLimits;

@@ -13,6 +13,42 @@ describe('parseTranscript', () => {
   // without exercising the parse path under test.
   beforeEach(() => { _clearTranscriptCache(); });
 
+  describe('malformed tool_use fields', () => {
+    let dir: string;
+    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'lumira-transcript-bad-')); });
+    afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+    const write = (blocks: unknown[]) => {
+      const p = join(dir, 't.jsonl');
+      writeFileSync(p, JSON.stringify({ type: 'assistant', timestamp: '2026-10-19T10:00:00Z', message: { content: blocks } }) + '\n');
+      return p;
+    };
+
+    it('skips a tool_use whose name is not a string, keeping the valid ones', async () => {
+      const result = await parseTranscript(write([
+        { type: 'tool_use', id: 'bad', name: 5, input: {} },
+        { type: 'tool_use', id: 'ok', name: 'Read', input: { file_path: '/x/y.ts' } },
+      ]));
+      expect(result.tools.map(t => t.name)).toEqual(['Read']);
+    });
+
+    it('labels an agent whose subagent_type is not a string as unknown', async () => {
+      const result = await parseTranscript(write([
+        { type: 'tool_use', id: 'a1', name: 'Agent', input: { subagent_type: 7, description: 'd' } },
+      ]));
+      expect(result.agents[0].type).toBe('unknown');
+    });
+
+    it('drops a TodoWrite item whose content is not a string', async () => {
+      const result = await parseTranscript(write([
+        { type: 'tool_use', id: 't1', name: 'TodoWrite', input: { todos: [
+          { id: '1', content: 5, status: 'pending' },
+          { id: '2', content: 'real task', status: 'pending' },
+        ] } },
+      ]));
+      expect(result.todos.map(t => t.content)).toEqual(['real task']);
+    });
+  });
+
   it('parses basic tool use and result', async () => {
     const result = await parseTranscript(join(FIXTURES, 'transcript-basic.jsonl'));
     expect(result.tools).toHaveLength(1);

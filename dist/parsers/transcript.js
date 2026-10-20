@@ -201,7 +201,7 @@ export async function parseTranscript(transcriptPath) {
                 if (!content || !Array.isArray(content))
                     continue;
                 for (const block of content) {
-                    if (block.type === 'tool_use' && block.id && block.name) {
+                    if (block.type === 'tool_use' && block.id && typeof block.name === 'string' && block.name) {
                         // Claude Code occasionally re-emits a tool_use after its tool_result
                         // has already landed (observed when a subagent dispatch fails with
                         // "Agent type not found"). Treat the first completion as final —
@@ -220,7 +220,7 @@ export async function parseTranscript(transcriptPath) {
                                 const inp = block.input || {};
                                 agentMap.set(block.id, {
                                     id: block.id,
-                                    type: sanitizeTermString(inp.subagent_type || 'unknown'),
+                                    type: typeof inp.subagent_type === 'string' && inp.subagent_type ? sanitizeTermString(inp.subagent_type) : 'unknown',
                                     model: typeof inp.model === 'string' ? sanitizeTermString(inp.model) : inp.model,
                                     description: typeof inp.description === 'string' ? sanitizeTermString(inp.description) : inp.description,
                                     status: 'running',
@@ -230,7 +230,9 @@ export async function parseTranscript(transcriptPath) {
                         }
                         if (block.name === 'TodoWrite' && block.input?.todos && Array.isArray(block.input.todos)) {
                             const existingById = new Map(todos.map(t => [t.id || t.content, t]));
-                            todos = block.input.todos.map((t) => {
+                            todos = block.input.todos
+                                .filter((t) => t.content === undefined || typeof t.content === 'string')
+                                .map((t) => {
                                 const id = t.id || t.content || '';
                                 const existing = existingById.get(id);
                                 if (existing) {

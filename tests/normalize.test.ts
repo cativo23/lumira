@@ -930,9 +930,9 @@ describe('malformed payload fields', () => {
   const asRaw = (p: unknown) => p as ClaudeCodeInput;
 
   it('treats a non-string as an empty string in sanitizeTermString', () => {
-    expect(sanitizeTermString(undefined as unknown as string)).toBe('');
-    expect(sanitizeTermString(5 as unknown as string)).toBe('');
-    expect(sanitizeTermString({} as unknown as string)).toBe('');
+    expect(sanitizeTermString(undefined)).toBe('');
+    expect(sanitizeTermString(5)).toBe('');
+    expect(sanitizeTermString({})).toBe('');
   });
 
   it.each([
@@ -967,6 +967,24 @@ describe('malformed payload fields', () => {
     }));
     expect(result.rateLimits?.fiveHour).toEqual({ usedPercentage: 40, resetsAt: undefined });
     expect(result.rateLimits?.sevenDay).toEqual({ usedPercentage: 10, resetsAt: undefined });
+  });
+
+  it('falls back to workspace.current_dir when cwd is not a string', () => {
+    const result = normalize(asRaw({ ...claudeInput, cwd: 5, workspace: { current_dir: '/from/workspace' } }));
+    expect(result.cwd).toBe('/from/workspace');
+  });
+
+  it.each([
+    ['an object', { x: 1 }],
+    ['a string', 'ZZZ'],
+    ['an escape sequence', '\u001b]8;;https://evil\u0007X'],
+  ])('treats a lines-changed count that is %s as zero', (_label, bad) => {
+    const claude = normalize(asRaw({ ...claudeInput, cost: { ...claudeInput.cost, total_lines_added: bad, total_lines_removed: 3 } }));
+    expect(claude.linesAdded).toBe(0);
+    expect(claude.linesRemoved).toBe(3);
+    const qwen = normalize({ ...qwenInput, metrics: { ...qwenInput.metrics, files: { total_lines_added: bad, total_lines_removed: 2 } } } as unknown as QwenInput);
+    expect(qwen.linesAdded).toBe(0);
+    expect(qwen.linesRemoved).toBe(2);
   });
 
   it('keeps a finite numeric resets_at', () => {
