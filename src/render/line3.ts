@@ -1,20 +1,31 @@
-import { truncField } from './text.js';
+import { truncField, truncAnsi, displayWidth, safeCols } from './text.js';
 import { SEP, EXCLUDED_TOOLS, getCustomCommandsForLine, renderCustomCommand } from './shared.js';
 import type { IconSet } from './icons.js';
 import type { Colors } from './colors.js';
 import type { RenderContext, ToolEntry, TodoEntry } from '../types.js';
 
-function buildToolsPart(tools: ToolEntry[], c: Colors, ic: IconSet): string {
+// One piece of line 3. `group` decides the separator (pieces of the same group
+// join with a space, groups with SEP); `priority` decides eviction order when
+// the line is wider than the terminal — lowest goes first.
+interface Piece {
+  group: string;
+  text: string;
+  priority: number;
+  shorten: (max: number) => string;
+}
+
+function buildToolPieces(tools: ToolEntry[], c: Colors, ic: IconSet): Piece[] {
   const relevant = tools.filter(t => !EXCLUDED_TOOLS.has(t.name));
-  if (relevant.length === 0) return '';
+  const pieces: Piece[] = [];
 
-  const parts: string[] = [];
-
+  // What is running now outlives the history: the first running tool is the
+  // last thing to go, and the only one that gets shortened instead of dropped.
   const running = relevant.filter(t => t.status === 'running').slice(-2);
-  for (const tool of running) {
+  running.forEach((tool, i) => {
     const target = tool.target ? `: ${truncField(tool.target, 14)}` : '';
-    parts.push(c.yellow(`◐ ${tool.name}${target}`));
-  }
+    const label = `◐ ${tool.name}${target}`;
+    pieces.push({ group: 'tools', text: c.yellow(label), priority: i === 0 ? 100 : 80, shorten: max => c.yellow(truncField(label, max)) });
+  });
 
   const completed = relevant.filter(t => t.status === 'completed');
   const groups = new Map<string, number>();
@@ -26,12 +37,14 @@ function buildToolsPart(tools: ToolEntry[], c: Colors, ic: IconSet): string {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4);
 
-  for (const [name, count] of topGroups) {
+  // Completed groups are history: they go first, least-used before most-used.
+  topGroups.forEach(([name, count], i) => {
     const countStr = count > 1 ? ` ×${count}` : '';
-    parts.push(c.dim(`${ic.checkmark} ${name}${countStr}`));
-  }
+    const label = `${ic.checkmark} ${name}${countStr}`;
+    pieces.push({ group: 'tools', text: c.dim(label), priority: 50 - i, shorten: max => c.dim(truncField(label, max)) });
+  });
 
-  return parts.join(' ');
+  return pieces;
 }
 
 function buildAgentsPart(agents: import('../types.js').AgentEntry[], c: Colors, ic: IconSet): string {
@@ -62,19 +75,50 @@ function buildTodosPart(todos: TodoEntry[], c: Colors, ic: IconSet): string {
 
 export function renderLine3(ctx: RenderContext, c: Colors): string {
   const { transcript: { tools, todos, agents }, config: { display }, icons } = ctx;
-  const toolsPart = display.tools === false ? '' : buildToolsPart(tools, c, icons);
-  const agentsPart = display.agents === false ? '' : buildAgentsPart(agents, c, icons);
-  const todosPart = display.todos === false ? '' : buildTodosPart(todos, c, icons);
+  const pieces: Piece[] = display.tools === false ? [] : buildToolPieces(tools, c, icons);
 
-  const parts = [toolsPart, agentsPart, todosPart].filter(Boolean);
+  const agentsPart = display.agents === false ? '' : buildAgentsPart(agents, c, icons);
+  if (agentsPart) pieces.push({ group: 'agents', text: agentsPart, priority: 85, shorten: max => truncAnsi(agentsPart, max) });
+
+  const todosPart = display.todos === false ? '' : buildTodosPart(todos, c, icons);
+  if (todosPart) pieces.push({ group: 'todos', text: todosPart, priority: 90, shorten: max => truncAnsi(todosPart, max) });
 
   // Custom commands (issue #143 phase 3) — appended after the core line3
   // widgets so they sit at the end of the line and are visible without
-  // disrupting the tools/agents/todos cluster.
-  for (const out of getCustomCommandsForLine(ctx.customCommands, 3)) {
+  // disrupting the tools/agents/todos cluster. Lowest priority: they evict
+  // first, the last one before the earlier ones.
+  getCustomCommandsForLine(ctx.customCommands, 3).forEach((out, i) => {
     const seg = renderCustomCommand(out, c);
-    if (seg) parts.push(seg);
-  }
+    if (seg) pieces.push({ group: `custom-${i}`, text: seg, priority: 10 - i / 100, shorten: max => truncAnsi(seg, max) });
+  });
 
-  return parts.join(SEP);
+  return fitPieces(pieces, safeCols(ctx.cols));
+}
+
+function joinPieces(pieces: Piece[]): string {
+  const groups: string[][] = [];
+  let current = '';
+  for (const p of pieces) {
+    if (p.group !== current || groups.length === 0) {
+      groups.push([]);
+      current = p.group;
+    }
+    groups[groups.length - 1].push(p.text);
+  }
+  return groups.map(g => g.join(' ')).join(SEP);
+}
+
+// Drop the lowest-priority piece until the line fits; a single piece that is
+// still too wide is shortened rather than wrapping the statusline.
+function fitPieces(pieces: Piece[], safe: number): string {
+  const kept = [...pieces];
+  let line = joinPieces(kept);
+  while (kept.length > 1 && displayWidth(line) > safe) {
+    let lowest = 0;
+    for (let i = 1; i < kept.length; i++) if (kept[i].priority < kept[lowest].priority) lowest = i;
+    kept.splice(lowest, 1);
+    line = joinPieces(kept);
+  }
+  if (kept.length === 1 && displayWidth(line) > safe) return kept[0].shorten(safe);
+  return line;
 }

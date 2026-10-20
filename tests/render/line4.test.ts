@@ -5,6 +5,7 @@ import { EMPTY_GIT, EMPTY_TRANSCRIPT, DEFAULT_CONFIG, DEFAULT_DISPLAY } from '..
 import type { ClaudeCodeInput, GsdInfo, RenderContext } from '../../src/types.js';
 import { NERD_ICONS } from '../../src/render/icons.js';
 import { normalize } from '../../src/normalize.js';
+import { displayWidth, safeCols } from '../../src/render/text.js';
 
 const c = createColors('named');
 
@@ -109,5 +110,99 @@ describe('renderLine4', () => {
       const ctx = makeCtx(null, { customCommands: [] });
       expect(renderLine4(ctx, c)).toBe('');
     });
+  });
+});
+
+describe('renderLine4 — fitting the terminal width', () => {
+  const longTask = 'Implement the priority based eviction for the classic statusline renderer';
+  const gsd: GsdInfo = { currentTask: longTask, hasResume: true, updateAvailable: true, staleHooks: true };
+  const widget = [{ id: 'w', text: 'WIDGET', state: 'ok' as const, line: 4 as const, ansi: false }];
+  const render = (cols: number) => stripAnsi(renderLine4(makeCtx(gsd, { cols, customCommands: widget }), c));
+
+  it('is unchanged when everything fits', () => {
+    const out = render(300);
+    expect(out).toContain(longTask.slice(0, 40));
+    expect(out).toContain('WIDGET');
+  });
+
+  it.each([60, 80, 100, 120])('never exceeds the usable width at %i cols when the warnings fit', (cols) => {
+    expect(displayWidth(render(cols))).toBeLessThanOrEqual(safeCols(cols));
+  });
+
+  it('drops custom widgets before shortening the task, and always keeps the warnings', () => {
+    // 121 cells with the widget, 114 without: at 122 cols (118 usable) only the widget goes.
+    const out = render(122);
+    expect(out).not.toContain('WIDGET');
+    expect(out).toContain('Implement the priority based eviction');
+    expect(out).toContain('⬆ /gsd:update');
+    expect(out).toContain('stale hooks');
+  });
+
+  it('keeps the update and stale-hooks warnings even at 80 cols', () => {
+    const out = render(80);
+    expect(out).toContain('⬆ /gsd:update');
+    expect(out).toContain('stale hooks');
+    expect(out).toContain('GSD');
+  });
+});
+
+describe('renderLine4 — warnings on a narrow terminal', () => {
+  it.each([
+    [false, 40], [false, 50], [true, 40], [true, 56], [true, 60], [true, 66],
+  ])('compacts the warnings (devInstall %s) to fit %i cols, never dropping them', (devInstall, cols) => {
+    const gsd: GsdInfo = { updateAvailable: true, staleHooks: true, devInstall, hasResume: true };
+    const out = stripAnsi(renderLine4(makeCtx(gsd, { cols }), c));
+    expect(displayWidth(out)).toBeLessThanOrEqual(safeCols(cols));
+    expect(out).toContain('⬆ /gsd:update');
+    expect(out).toContain(devInstall ? '⚠ dev install' : '⚠ stale hooks');
+  });
+
+  it('keeps the full warning text when it fits', () => {
+    const gsd: GsdInfo = { updateAvailable: true, staleHooks: true, devInstall: true };
+    expect(stripAnsi(renderLine4(makeCtx(gsd, { cols: 120 }), c))).toContain('re-run installer to sync hooks');
+  });
+});
+
+describe('renderLine4 — task vs warning wording', () => {
+  it('keeps the task and uses the short warning when only that fits', () => {
+    const gsd: GsdInfo = { currentTask: 'Long GSD task here', updateAvailable: true, staleHooks: true, devInstall: true, hasResume: true };
+    const out = stripAnsi(renderLine4(makeCtx(gsd, { cols: 66 }), c));
+    expect(displayWidth(out)).toBeLessThanOrEqual(safeCols(66));
+    expect(out).toContain('Long GSD task here');
+    expect(out).toContain('⚠ dev install');
+    expect(out).not.toContain('re-run installer');
+  });
+});
+
+describe('renderLine4 — very narrow terminals', () => {
+  it.each([9, 12, 16, 21])('shows both warnings in some form at %i cols', (cols) => {
+    const gsd: GsdInfo = { updateAvailable: true, staleHooks: true };
+    const out = stripAnsi(renderLine4(makeCtx(gsd, { cols }), c));
+    expect(displayWidth(out)).toBeLessThanOrEqual(safeCols(cols));
+    expect(out).toContain('⬆');
+    expect(out).toContain('⚠');
+  });
+
+  it('shows a lone stale-hooks warning instead of just the GSD label at 9 cols', () => {
+    const out = stripAnsi(renderLine4(makeCtx({ staleHooks: true }, { cols: 9 }), c));
+    expect(out).toContain('⚠');
+    expect(displayWidth(out)).toBeLessThanOrEqual(safeCols(9));
+  });
+});
+
+describe('renderLine4 — one or two free cells', () => {
+  it('shows both glyphs side by side at 6 cols (2 usable)', () => {
+    const out = stripAnsi(renderLine4(makeCtx({ updateAvailable: true, staleHooks: true }, { cols: 6 }), c));
+    expect(out).toBe('⬆⚠');
+  });
+
+  it('shows the stale-hooks glyph, the more urgent one, at 5 cols (1 usable)', () => {
+    const out = stripAnsi(renderLine4(makeCtx({ updateAvailable: true, staleHooks: true }, { cols: 5 }), c));
+    expect(out).toBe('⚠');
+  });
+
+  it('shows the update glyph alone at 5 cols when it is the only warning', () => {
+    const out = stripAnsi(renderLine4(makeCtx({ updateAvailable: true }, { cols: 5 }), c));
+    expect(out).toBe('⬆');
   });
 });
