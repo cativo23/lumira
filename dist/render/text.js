@@ -13,9 +13,17 @@ const WIDE_SYMBOLS = [
     [0x27B0, 0x27B0], [0x27BF, 0x27BF],
     [0x2B1B, 0x2B1C], [0x2B50, 0x2B50], [0x2B55, 0x2B55],
 ];
+// East Asian Wide (W) and Fullwidth (F) ranges for the CJK scripts, Unicode 16
+// UAX #11. Ambiguous code points inside them stay 1 (U+3248–324F, the halfwidth
+// forms FF61–FFDC / FFE8–FFEE), matching Western terminals as #209 does.
+const WIDE_CJK = [
+    [0x1100, 0x115F], [0x2E80, 0x303E], [0x3041, 0x3247], [0x3250, 0x4DBF],
+    [0x4E00, 0xA4CF], [0xA960, 0xA97F], [0xAC00, 0xD7A3], [0xF900, 0xFAFF],
+    [0xFE10, 0xFE19], [0xFE30, 0xFE6F], [0xFF01, 0xFF60], [0xFFE0, 0xFFE6],
+];
 const VS16 = 0xFE0F;
-function isWideSymbol(cp) {
-    for (const [lo, hi] of WIDE_SYMBOLS)
+function inRanges(cp, ranges) {
+    for (const [lo, hi] of ranges)
         if (cp >= lo && cp <= hi)
             return true;
     return false;
@@ -33,12 +41,13 @@ function charWidth(cp) {
         return 1;
     // Kept at 2 even for the few text-default pictographs (🏎 without VS16):
     // over-counting leaves a blank cell, under-counting overflows the line.
-    if (cp >= 0x1F000 || (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3000 && cp <= 0x303F) ||
-        (cp >= 0xFF00 && cp <= 0xFFEF))
+    if (cp >= 0x1F000)
         return 2;
-    if (cp < 0x2300 || cp > 0x2BFF)
-        return 1;
-    return isWideSymbol(cp) ? 2 : 1;
+    if (cp >= 0x2300 && cp <= 0x2BFF)
+        return inRanges(cp, WIDE_SYMBOLS) ? 2 : 1;
+    if (cp >= 0x1100 && cp <= 0xFFE6)
+        return inRanges(cp, WIDE_CJK) ? 2 : 1;
+    return 1;
 }
 export function displayWidth(str) {
     const clean = stripAnsi(str);
@@ -106,6 +115,16 @@ export function safeCols(cols) {
 }
 export function fitSegments(left, right, sep, cols) {
     const safe = safeCols(cols);
+    // Nothing on the left (e.g. contextBar off): fit the right side alone, or
+    // the loop below never runs and the whole line disappears.
+    if (left.length === 0) {
+        for (let r = right.length; r >= 1; r--) {
+            const rightStr = right.slice(0, r).join(sep);
+            if (displayWidth(rightStr) <= safe)
+                return rightStr;
+        }
+        return truncField(stripAnsi(right[0] ?? ''), safe);
+    }
     for (let l = left.length; l >= 1; l--) {
         const lSlice = left.slice(0, l);
         const leftStr = lSlice.join(sep);
