@@ -22,7 +22,7 @@ import { normalize, payloadCwd } from './normalize.js';
 const defaultDeps: Dependencies = {
   readStdin: () => defaultReadStdin(process.stdin),
   parseGit: (cwd) => parseGitStatus(cwd),
-  parseTranscript: (path) => parseTranscript(path),
+  parseTranscript: (path) => parseTranscript(path, { diskCacheDir: join(homedir(), '.cache', 'lumira', 'transcripts') }),
   getTokenSpeed: (ctx) => getTokenSpeed(ctx),
   getMemoryInfo: () => getMemoryInfo(),
   getGsdInfo: (cwd) => getGsdInfo(cwd),
