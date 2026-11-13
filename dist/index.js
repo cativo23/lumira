@@ -173,6 +173,9 @@ if (isDirectRun()) {
                 process.stderr.write(r.stderr);
             if (r.exitCode !== 0)
                 process.exit(r.exitCode);
+        }).catch(e => {
+            process.stderr.write(`Themes error: ${e.message}\n`);
+            process.exit(1);
         });
     }
     else if (cmd === 'stats') {

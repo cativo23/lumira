@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 describe('src/index.ts startup cost', () => {
   const src = readFileSync(join(import.meta.dirname, '..', 'src', 'index.ts'), 'utf8');
-  const staticImports = src.split('\n').filter(l => /^import\s/.test(l));
+  const staticSpecifiers = [...src.matchAll(/^(?:import|export)\s[^;]*?\sfrom\s+['"]([^'"]+)['"]/gm)].map(m => m[1]);
 
   it.each([
     './installer.js',
@@ -14,7 +14,12 @@ describe('src/index.ts startup cost', () => {
     './commands/subagent.js',
     './commands/custom-refresh.js',
     './parsers/custom-commands.js',
-  ])('does not statically import %s on the render path', mod => {
-    expect(staticImports.filter(l => l.includes(`'${mod}'`))).toEqual([]);
+  ])('loads %s on demand, not on the render path', mod => {
+    expect(staticSpecifiers).not.toContain(mod);
+    expect(src).toMatch(new RegExp(`import\\(\\s*['"]${mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]\\s*\\)`));
+  });
+
+  it('still statically imports what the render path needs', () => {
+    expect(staticSpecifiers).toContain('./render/index.js');
   });
 });

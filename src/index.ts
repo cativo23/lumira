@@ -179,6 +179,9 @@ if (isDirectRun()) {
       if (r.stdout) process.stdout.write(r.stdout);
       if (r.stderr) process.stderr.write(r.stderr);
       if (r.exitCode !== 0) process.exit(r.exitCode);
+    }).catch(e => {
+      process.stderr.write(`Themes error: ${e.message}\n`);
+      process.exit(1);
     });
   } else if (cmd === 'stats') {
     import('./commands/stats.js').then(m => m.runStatsCommand(process.argv, process.stdout.columns)).then(r => {

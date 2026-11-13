@@ -113,10 +113,13 @@ describe('parseGitStatus', () => {
     const past = new Date(Date.now() - 6000);
     utimesSync(file, past, past);
     const exec = vi.fn();
-    const result = await parseGitStatus(cwd, exec);
-    expect(result).toEqual(cached);
-    expect(exec).not.toHaveBeenCalled();
-    rmSync(file, { force: true });
+    try {
+      const result = await parseGitStatus(cwd, exec);
+      expect(result).toEqual(cached);
+      expect(exec).not.toHaveBeenCalled();
+    } finally {
+      rmSync(file, { force: true });
+    }
   });
 
 });
