@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { readTtlCache, writeTtlCache } from '../utils/cache.js';
 import { safeExec } from '../utils/exec.js';
 import { EMPTY_GIT } from '../types.js';
-const GIT_CACHE_TTL = 5000;
+const GIT_CACHE_TTL = 15000;
 function cacheKey(cwd) {
     return 'git-' + createHash('md5').update(cwd).digest('hex');
 }

@@ -6,7 +6,7 @@ import type { GitStatus } from '../types.js';
 import { EMPTY_GIT } from '../types.js';
 
 type ExecFn = (cmd: string, args: string[], opts?: ExecOptions) => Promise<string>;
-const GIT_CACHE_TTL = 5000;
+const GIT_CACHE_TTL = 15000;
 
 function cacheKey(cwd: string): string {
   return 'git-' + createHash('md5').update(cwd).digest('hex');

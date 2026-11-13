@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, appendFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseGitStatus } from '../../src/parsers/git.js';
@@ -102,6 +102,24 @@ describe('parseGitStatus', () => {
 
     writeSpy.mockRestore();
     readSpy.mockRestore();
+  });
+
+  it('serves a cache entry written 6s ago so a 5s refresh does not respawn git every tick', async () => {
+    const cwd = '/ttl-six-seconds-test';
+    const key = 'git-' + createHash('md5').update(cwd).digest('hex');
+    const cached = { branch: 'cached-branch', staged: 1, modified: 2, untracked: 3 };
+    cacheUtils.writeTtlCache(key, cached, tmpdir());
+    const file = join(tmpdir(), `lumira-${process.getuid?.() ?? 'default'}`, `${key}.json`);
+    const past = new Date(Date.now() - 6000);
+    utimesSync(file, past, past);
+    const exec = vi.fn();
+    try {
+      const result = await parseGitStatus(cwd, exec);
+      expect(result).toEqual(cached);
+      expect(exec).not.toHaveBeenCalled();
+    } finally {
+      rmSync(file, { force: true });
+    }
   });
 
 });
