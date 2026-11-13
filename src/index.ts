@@ -10,17 +10,10 @@ import { getTokenSpeed } from './parsers/token-speed.js';
 import { getMemoryInfo } from './parsers/memory.js';
 import { getGsdInfo } from './parsers/gsd.js';
 import { getMcpInfo } from './parsers/mcp.js';
-import { getCustomCommandOutputs } from './parsers/custom-commands.js';
 import { getLayoutCols, getTermCols } from './utils/terminal.js';
 import { loadConfig, mergeCliFlags } from './config.js';
-import { render } from './render/index.js';
+import { render, needsTranscript } from './render/index.js';
 import { resolveIcons } from './render/icons.js';
-import { install, uninstall } from './installer.js';
-import { runThemesCommand } from './commands/themes.js';
-import { runStatsCommand } from './commands/stats.js';
-import { runCustomRefreshFromStdin } from './commands/custom-refresh.js';
-import { runWidgetCommand } from './commands/widget.js';
-import { runSubagentCommand } from './commands/subagent.js';
 import type { Dependencies, RawInput } from './types.js';
 import type { NormalizedInput } from './normalize.js';
 import { EMPTY_TRANSCRIPT } from './types.js';
@@ -65,9 +58,17 @@ export async function main(overrides: Partial<Dependencies> = {}): Promise<strin
   const input = await deps.readStdin();
   const cwd = payloadCwd(input);
 
+  const rawCols = deps.getTermCols();
+  const isTTY = !!(process.stdout.columns || process.stderr.columns);
+  const cols = getLayoutCols(rawCols, isTTY);
+  const normalizedInput = normalize(input);
+
+  // Parsing a long transcript costs hundreds of ms of CPU on every tick, so
+  // skip it when no widget that will render reads it.
+  const wantsTranscript = !!input.transcript_path && needsTranscript(normalizedInput.platform, config, cols);
   const [git, transcript] = await Promise.all([
     deps.parseGit(cwd),
-    input.transcript_path ? deps.parseTranscript(input.transcript_path) : Promise.resolve(EMPTY_TRANSCRIPT),
+    wantsTranscript ? deps.parseTranscript(input.transcript_path as string) : Promise.resolve(EMPTY_TRANSCRIPT),
   ]);
 
   const tokenSpeed = deps.getTokenSpeed(input.context_window);
@@ -75,11 +76,7 @@ export async function main(overrides: Partial<Dependencies> = {}): Promise<strin
   const gsd = config.gsd ? deps.getGsdInfo(cwd) : null;
   const mcp = deps.getMcpInfo(cwd);
 
-  const rawCols = deps.getTermCols();
-  const isTTY = !!(process.stdout.columns || process.stderr.columns);
-  const cols = getLayoutCols(rawCols, isTTY);
   const icons = resolveIcons(config.icons);
-  const normalizedInput = normalize(input);
 
   // Custom command outputs (issue #143). The parser is async because it reads
   // the on-disk cache + may spawn a detached refresh helper, but it is
@@ -87,11 +84,15 @@ export async function main(overrides: Partial<Dependencies> = {}): Promise<strin
   // catch: any unexpected error degrades to no custom segments rather than
   // breaking the entire statusline render.
   const configFilePath = join(homedir(), '.config', 'lumira', 'config.json');
-  const customCommands = await getCustomCommandOutputs({
-    config: config.customCommands,
-    stdin: buildStdinEnvelope(input, normalizedInput),
-    configFilePath,
-  }).catch(() => []);
+  const customCommands = config.customCommands?.enabled
+    ? await import('./parsers/custom-commands.js')
+        .then(m => m.getCustomCommandOutputs({
+          config: config.customCommands,
+          stdin: buildStdinEnvelope(input, normalizedInput),
+          configFilePath,
+        }))
+        .catch(() => [])
+    : [];
 
   return render({ input: normalizedInput, git, transcript, tokenSpeed, memory, gsd, mcp, cols, config, icons, customCommands });
 }
@@ -163,24 +164,27 @@ if (isDirectRun()) {
     process.exit(0);
   } else if (cmd === 'install') {
     const configPath = join(homedir(), '.config', 'lumira', 'config.json');
-    install({ configPath }).then(o => process.stdout.write(o)).catch(e => {
+    import('./installer.js').then(m => m.install({ configPath })).then(o => process.stdout.write(o)).catch(e => {
       process.stderr.write(`Install error: ${e.message}\n`);
       process.exitCode = 1;
     });
   } else if (cmd === 'uninstall') {
-    try {
-      process.stdout.write(uninstall());
-    } catch (e) {
+    import('./installer.js').then(m => process.stdout.write(m.uninstall())).catch(e => {
       process.stderr.write(`Uninstall error: ${(e as Error).message}\n`);
       process.exitCode = 1;
-    }
+    });
   } else if (cmd === 'themes') {
-    const r = runThemesCommand(process.argv, process.stdout.columns);
-    if (r.stdout) process.stdout.write(r.stdout);
-    if (r.stderr) process.stderr.write(r.stderr);
-    if (r.exitCode !== 0) process.exit(r.exitCode);
+    import('./commands/themes.js').then(m => {
+      const r = m.runThemesCommand(process.argv, process.stdout.columns);
+      if (r.stdout) process.stdout.write(r.stdout);
+      if (r.stderr) process.stderr.write(r.stderr);
+      if (r.exitCode !== 0) process.exit(r.exitCode);
+    }).catch(e => {
+      process.stderr.write(`Themes error: ${e.message}\n`);
+      process.exit(1);
+    });
   } else if (cmd === 'stats') {
-    runStatsCommand(process.argv, process.stdout.columns).then(r => {
+    import('./commands/stats.js').then(m => m.runStatsCommand(process.argv, process.stdout.columns)).then(r => {
       if (r.stdout) process.stdout.write(r.stdout);
       if (r.stderr) process.stderr.write(r.stderr);
       if (r.exitCode !== 0) process.exit(r.exitCode);
@@ -189,7 +193,7 @@ if (isDirectRun()) {
       process.exit(1);
     });
   } else if (cmd === 'widget' || cmd === 'custom') {
-    runWidgetCommand(process.argv).then(r => {
+    import('./commands/widget.js').then(m => m.runWidgetCommand(process.argv)).then(r => {
       if (r.output) process.stdout.write(r.output);
       if (r.exitCode !== 0) process.exit(r.exitCode);
     }).catch(e => {
@@ -200,7 +204,7 @@ if (isDirectRun()) {
     // CC's subagentStatusLine hook: reads the tasks JSON from its own stdin and
     // emits one JSON line per row. Degrades to empty output on any error so a
     // bad payload never breaks CC's agent panel.
-    runSubagentCommand().then(r => {
+    import('./commands/subagent.js').then(m => m.runSubagentCommand()).then(r => {
       if (r.stdout) process.stdout.write(r.stdout);
       if (r.stderr) process.stderr.write(r.stderr);
       if (r.exitCode !== 0) process.exit(r.exitCode);
@@ -209,7 +213,7 @@ if (isDirectRun()) {
     // Internal: invoked by the renderer as a detached child to refresh a
     // single custom command's cache entry without keeping the renderer's
     // event loop refed. Reads the spec JSON from its own stdin.
-    runCustomRefreshFromStdin().then(() => process.exit(0)).catch(() => process.exit(0));
+    import('./commands/custom-refresh.js').then(m => m.runCustomRefreshFromStdin()).then(() => process.exit(0)).catch(() => process.exit(0));
   } else if (cmd !== undefined) {
     process.stderr.write(`Unknown command: ${cmd}. Run with --help for usage.\n`);
     process.exit(1);

@@ -8,15 +8,30 @@ import { renderPowerlineLine1 } from './powerline-line1.js';
 import { renderPowerlineLine2 } from './powerline-line2.js';
 import { renderPowerlineLine3 } from './powerline-line3.js';
 import { resolveTheme } from '../themes.js';
-import type { RenderContext } from '../types.js';
+import type { HudConfig, RenderContext } from '../types.js';
+
+export function usesMinimalLayout(platform: string, config: Pick<HudConfig, 'layout'>, cols: number): boolean {
+  return platform === 'qwen-code' || config.layout === 'singleline' || (config.layout === 'auto' && cols < 70);
+}
+
+/**
+ * Whether any widget that will actually render reads the parsed transcript.
+ * The minimal layout only reads it through line 3 (tools/agents/todos, shown
+ * unless explicitly `false`). Every other layout reads it on lines 1 and 2
+ * (active todo, agent, compaction count, effort fallback), so it always parses.
+ */
+export function needsTranscript(platform: string, config: Pick<HudConfig, 'layout' | 'display'>, cols: number): boolean {
+  if (!usesMinimalLayout(platform, config, cols)) return true;
+  const { display } = config;
+  return display.tools !== false || display.agents !== false || display.todos !== false;
+}
 
 export function render(ctx: RenderContext): string {
   const colorMode: ColorMode = ctx.config.colors.mode === 'auto' ? detectColorMode() : ctx.config.colors.mode;
   const theme = resolveTheme(ctx.config.theme, colorMode);
   const c = createColors(colorMode, theme);
 
-  const isQwen = ctx.input.platform === 'qwen-code';
-  if (isQwen || ctx.config.layout === 'singleline' || (ctx.config.layout === 'auto' && ctx.cols < 70)) {
+  if (usesMinimalLayout(ctx.input.platform, ctx.config, ctx.cols)) {
     return renderMinimal(ctx, c);
   }
 
