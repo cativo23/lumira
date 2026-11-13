@@ -1,5 +1,4 @@
-import { createReadStream, existsSync } from 'node:fs';
-import { createInterface } from 'node:readline';
+import { closeSync, existsSync, fstatSync, openSync, readSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { EMPTY_TRANSCRIPT } from '../types.js';
 import { isMtimeFresh, getMtimeState } from '../utils/cache.js';
@@ -7,6 +6,7 @@ import { sanitizeTermString } from '../normalize.js';
 import { isUnderAllowedRoot, LUMIRA_ALLOWED_ROOTS } from '../utils/path.js';
 import { debug } from '../utils/debug.js';
 import { scanSubagentsDir, readSubagentDetails, subagentsDirStateEqual } from './subagents.js';
+import { newParseState, fingerprint, loadCheckpoint, saveCheckpoint, serializeCheckpoint } from './transcript-checkpoint.js';
 const log = debug('transcript');
 // Full re-parse on cache miss is intentional. Incremental byte-offset parsing
 // was evaluated and rejected (see #43): real transcripts are low-thousands of
@@ -127,7 +127,162 @@ export function extractToolTarget(toolName, input) {
 // now in `src/utils/path.ts` so other parsers (e.g. `subagents.ts`) share the
 // same canonicalisation and allow-list semantics. See `path.ts` for caveats
 // about the string-level (non-symlink-following) nature of the check.
-export async function parseTranscript(transcriptPath) {
+const EFFORT_REGEX = /Set model to .+? with (low|medium|high|max|xhigh) effort/;
+const READ_CHUNK = 1 << 20;
+/** Applies one JSONL line to `state`. Returns false once the MAX_LINES cap is exceeded. */
+function applyLine(state, line) {
+    if (!line.trim())
+        return true;
+    if (++state.lineCount > MAX_LINES)
+        return false;
+    const { toolMap, agentMap, taskIdToIndex } = state;
+    try {
+        const entry = JSON.parse(line);
+        if (!state.sessionStart && entry.timestamp)
+            state.sessionStart = new Date(entry.timestamp);
+        if (entry.type === 'system' && entry.subtype === 'compact_boundary')
+            state.compactionCount++;
+        const effortMatch = Array.isArray(entry.message?.content)
+            ? entry.message.content
+                .filter((b) => b.type === 'text')
+                .map((b) => b.text ?? '')
+                .join('\n')
+                .match(EFFORT_REGEX)
+            : null;
+        if (effortMatch)
+            state.thinkingEffort = effortMatch[1];
+        const timestamp = entry.timestamp ? new Date(entry.timestamp) : new Date();
+        const content = entry.message?.content;
+        if (!content || !Array.isArray(content))
+            return true;
+        for (const block of content) {
+            if (block.type === 'tool_use' && block.id && typeof block.name === 'string' && block.name) {
+                // Claude Code occasionally re-emits a tool_use after its tool_result
+                // has already landed (observed when a subagent dispatch fails with
+                // "Agent type not found"). Treat the first completion as final —
+                // never downgrade completed/error back to running on re-registration.
+                const existingTool = toolMap.get(block.id);
+                if (!existingTool || existingTool.status === 'running') {
+                    toolMap.set(block.id, { id: block.id, name: sanitizeTermString(block.name), target: extractToolTarget(block.name, block.input), status: 'running', startTime: timestamp });
+                }
+                // Claude Code ≥ 2.1.x renamed the subagent dispatch tool from
+                // `Task` to `Agent`. Both shapes carry the same fields
+                // (subagent_type, description, model, prompt). Accept either so the
+                // live agent count widget works on both versions.
+                if (block.name === 'Task' || block.name === 'Agent') {
+                    const existingAgent = agentMap.get(block.id);
+                    if (!existingAgent || existingAgent.status === 'running') {
+                        const inp = block.input || {};
+                        agentMap.set(block.id, {
+                            id: block.id,
+                            type: typeof inp.subagent_type === 'string' && inp.subagent_type ? sanitizeTermString(inp.subagent_type) : 'unknown',
+                            model: typeof inp.model === 'string' ? sanitizeTermString(inp.model) : inp.model,
+                            description: typeof inp.description === 'string' ? sanitizeTermString(inp.description) : inp.description,
+                            status: 'running',
+                            startTime: timestamp,
+                        });
+                    }
+                }
+                if (block.name === 'TodoWrite' && block.input?.todos && Array.isArray(block.input.todos)) {
+                    const existingById = new Map(state.todos.map(t => [t.id || t.content, t]));
+                    state.todos = block.input.todos
+                        .filter((t) => t.content === undefined || typeof t.content === 'string')
+                        .map((t) => {
+                        const id = t.id || t.content || '';
+                        const existing = existingById.get(id);
+                        if (existing) {
+                            const contentSame = (t.content || '') === (existing.content || '');
+                            const statusSame = !t.status || t.status === existing.status;
+                            if (contentSame && statusSame)
+                                return existing;
+                            // Content or status changed — rebuild, preserving whichever field didn't change.
+                            return {
+                                id: t.id || existing.id || '',
+                                content: sanitizeTermString(t.content || existing.content || ''),
+                                status: t.status ? normalizeTodoStatus(t.status) : existing.status,
+                            };
+                        }
+                        return { id: t.id || '', content: sanitizeTermString(t.content || ''), status: normalizeTodoStatus(t.status) };
+                    });
+                }
+                if (block.name === 'TaskCreate') {
+                    const inp = block.input || {};
+                    const todoContent = (typeof inp.subject === 'string' ? inp.subject : '') || (typeof inp.description === 'string' ? inp.description : '') || 'Untitled task';
+                    state.todos.push({ id: inp.taskId || block.id, content: sanitizeTermString(todoContent), status: normalizeTodoStatus(inp.status) });
+                    if (inp.taskId || block.id)
+                        taskIdToIndex.set(String(inp.taskId || block.id), state.todos.length - 1);
+                }
+                if (block.name === 'TaskUpdate') {
+                    const inp = block.input || {};
+                    let index = inp.taskId && taskIdToIndex.has(String(inp.taskId)) ? taskIdToIndex.get(String(inp.taskId)) : null;
+                    if (index === null && typeof inp.taskId === 'string' && /^\d+$/.test(inp.taskId)) {
+                        const n = parseInt(inp.taskId, 10) - 1;
+                        if (n >= 0 && n < state.todos.length)
+                            index = n;
+                    }
+                    if (index !== null && state.todos[index]) {
+                        if (inp.status)
+                            state.todos[index].status = normalizeTodoStatus(inp.status);
+                        const subj = typeof inp.subject === 'string' ? inp.subject : '';
+                        const desc = typeof inp.description === 'string' ? inp.description : '';
+                        if (subj || desc)
+                            state.todos[index].content = sanitizeTermString(subj || desc);
+                    }
+                }
+            }
+            if (block.type === 'tool_result' && block.tool_use_id) {
+                const tool = toolMap.get(block.tool_use_id);
+                if (tool) {
+                    tool.status = block.is_error ? 'error' : 'completed';
+                    tool.endTime = timestamp;
+                }
+                const agent = agentMap.get(block.tool_use_id);
+                if (agent) {
+                    agent.status = 'completed';
+                    agent.endTime = timestamp;
+                }
+            }
+        }
+    }
+    catch { /* skip malformed */ }
+    return true;
+}
+/**
+ * Reads [state.offset, size) in chunks and applies every newline-terminated
+ * line. `state.offset` only advances past complete lines, so a line still
+ * being written is picked up whole on a later call. Returns the unterminated
+ * tail, if any, so the caller can still render it without persisting it.
+ */
+function consumeLines(fd, state, size) {
+    const buf = Buffer.allocUnsafe(READ_CHUNK);
+    let pos = state.offset;
+    let carry = null;
+    while (pos < size && !state.truncated) {
+        const n = readSync(fd, buf, 0, Math.min(READ_CHUNK, size - pos), pos);
+        if (n <= 0)
+            break;
+        const chunk = carry ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n);
+        const chunkStart = pos - (carry ? carry.length : 0);
+        let start = 0;
+        let nl;
+        while (!state.truncated && (nl = chunk.indexOf(10, start)) !== -1) {
+            if (!applyLine(state, chunk.toString('utf8', start, nl))) {
+                state.truncated = true;
+                if (!truncationWarned) {
+                    truncationWarned = true;
+                    log(`warn — transcript exceeded MAX_LINES (${MAX_LINES}), output may be stale`);
+                }
+                break;
+            }
+            start = nl + 1;
+            state.offset = chunkStart + start;
+        }
+        carry = start < chunk.length ? Buffer.from(chunk.subarray(start)) : null;
+        pos += n;
+    }
+    return !state.truncated && carry ? carry.toString('utf8') : null;
+}
+export async function parseTranscript(transcriptPath, options = {}) {
     const result = { ...EMPTY_TRANSCRIPT, tools: [], agents: [], todos: [], compactionCount: 0 };
     if (!transcriptPath || !existsSync(transcriptPath)) {
         if (log.enabled)
@@ -164,146 +319,56 @@ export async function parseTranscript(transcriptPath) {
         return cloneShallow(cached.result);
     }
     const parseStart = log.enabled ? Date.now() : 0;
-    const toolMap = new Map();
-    const agentMap = new Map();
-    let todos = [];
-    const taskIdToIndex = new Map();
-    let thinkingEffort = '';
-    const effortRegex = /Set model to .+? with (low|medium|high|max|xhigh) effort/;
-    let fileStream = null;
+    let state = newParseState();
+    let storedSubagents = null;
+    let resumed = false;
+    let partialTail = null;
+    let snapshot = null;
+    let subagentDirAgents = [];
+    let fd = null;
     try {
-        fileStream = createReadStream(resolved);
-        const rl = createInterface({ input: fileStream, crlfDelay: Infinity });
-        let lineCount = 0;
-        for await (const line of rl) {
-            if (!line.trim())
-                continue;
-            if (++lineCount > MAX_LINES) {
-                if (!truncationWarned) {
-                    truncationWarned = true;
-                    log(`warn — transcript exceeded MAX_LINES (${MAX_LINES}), output may be stale`);
-                }
-                break;
+        fd = openSync(resolved, 'r');
+        const st = fstatSync(fd);
+        const checkpoint = options.diskCacheDir ? loadCheckpoint(options.diskCacheDir, resolved) : null;
+        if (checkpoint && st.size >= checkpoint.state.offset && (checkpoint.ino === 0 || st.ino === 0 || checkpoint.ino === st.ino)) {
+            const fp = fingerprint(fd, checkpoint.state.offset);
+            if (fp.head === checkpoint.head && fp.tail === checkpoint.tail) {
+                state = checkpoint.state;
+                storedSubagents = checkpoint.subagents;
+                resumed = true;
             }
-            try {
-                const entry = JSON.parse(line);
-                if (!result.sessionStart && entry.timestamp)
-                    result.sessionStart = new Date(entry.timestamp);
-                if (entry.type === 'system' && entry.subtype === 'compact_boundary')
-                    result.compactionCount++;
-                const effortMatch = Array.isArray(entry.message?.content)
-                    ? entry.message.content
-                        .filter((b) => b.type === 'text')
-                        .map((b) => b.text ?? '')
-                        .join('\n')
-                        .match(effortRegex)
-                    : null;
-                if (effortMatch)
-                    thinkingEffort = effortMatch[1];
-                const timestamp = entry.timestamp ? new Date(entry.timestamp) : new Date();
-                const content = entry.message?.content;
-                if (!content || !Array.isArray(content))
-                    continue;
-                for (const block of content) {
-                    if (block.type === 'tool_use' && block.id && typeof block.name === 'string' && block.name) {
-                        // Claude Code occasionally re-emits a tool_use after its tool_result
-                        // has already landed (observed when a subagent dispatch fails with
-                        // "Agent type not found"). Treat the first completion as final —
-                        // never downgrade completed/error back to running on re-registration.
-                        const existingTool = toolMap.get(block.id);
-                        if (!existingTool || existingTool.status === 'running') {
-                            toolMap.set(block.id, { id: block.id, name: sanitizeTermString(block.name), target: extractToolTarget(block.name, block.input), status: 'running', startTime: timestamp });
-                        }
-                        // Claude Code ≥ 2.1.x renamed the subagent dispatch tool from
-                        // `Task` to `Agent`. Both shapes carry the same fields
-                        // (subagent_type, description, model, prompt). Accept either so the
-                        // live agent count widget works on both versions.
-                        if (block.name === 'Task' || block.name === 'Agent') {
-                            const existingAgent = agentMap.get(block.id);
-                            if (!existingAgent || existingAgent.status === 'running') {
-                                const inp = block.input || {};
-                                agentMap.set(block.id, {
-                                    id: block.id,
-                                    type: typeof inp.subagent_type === 'string' && inp.subagent_type ? sanitizeTermString(inp.subagent_type) : 'unknown',
-                                    model: typeof inp.model === 'string' ? sanitizeTermString(inp.model) : inp.model,
-                                    description: typeof inp.description === 'string' ? sanitizeTermString(inp.description) : inp.description,
-                                    status: 'running',
-                                    startTime: timestamp,
-                                });
-                            }
-                        }
-                        if (block.name === 'TodoWrite' && block.input?.todos && Array.isArray(block.input.todos)) {
-                            const existingById = new Map(todos.map(t => [t.id || t.content, t]));
-                            todos = block.input.todos
-                                .filter((t) => t.content === undefined || typeof t.content === 'string')
-                                .map((t) => {
-                                const id = t.id || t.content || '';
-                                const existing = existingById.get(id);
-                                if (existing) {
-                                    const contentSame = (t.content || '') === (existing.content || '');
-                                    const statusSame = !t.status || t.status === existing.status;
-                                    if (contentSame && statusSame)
-                                        return existing;
-                                    // Content or status changed — rebuild, preserving whichever field didn't change.
-                                    return {
-                                        id: t.id || existing.id || '',
-                                        content: sanitizeTermString(t.content || existing.content || ''),
-                                        status: t.status ? normalizeTodoStatus(t.status) : existing.status,
-                                    };
-                                }
-                                return { id: t.id || '', content: sanitizeTermString(t.content || ''), status: normalizeTodoStatus(t.status) };
-                            });
-                        }
-                        if (block.name === 'TaskCreate') {
-                            const inp = block.input || {};
-                            const todoContent = (typeof inp.subject === 'string' ? inp.subject : '') || (typeof inp.description === 'string' ? inp.description : '') || 'Untitled task';
-                            todos.push({ id: inp.taskId || block.id, content: sanitizeTermString(todoContent), status: normalizeTodoStatus(inp.status) });
-                            if (inp.taskId || block.id)
-                                taskIdToIndex.set(String(inp.taskId || block.id), todos.length - 1);
-                        }
-                        if (block.name === 'TaskUpdate') {
-                            const inp = block.input || {};
-                            let index = inp.taskId && taskIdToIndex.has(String(inp.taskId)) ? taskIdToIndex.get(String(inp.taskId)) : null;
-                            if (index === null && typeof inp.taskId === 'string' && /^\d+$/.test(inp.taskId)) {
-                                const n = parseInt(inp.taskId, 10) - 1;
-                                if (n >= 0 && n < todos.length)
-                                    index = n;
-                            }
-                            if (index !== null && todos[index]) {
-                                if (inp.status)
-                                    todos[index].status = normalizeTodoStatus(inp.status);
-                                const subj = typeof inp.subject === 'string' ? inp.subject : '';
-                                const desc = typeof inp.description === 'string' ? inp.description : '';
-                                if (subj || desc)
-                                    todos[index].content = sanitizeTermString(subj || desc);
-                            }
-                        }
-                    }
-                    if (block.type === 'tool_result' && block.tool_use_id) {
-                        const tool = toolMap.get(block.tool_use_id);
-                        if (tool) {
-                            tool.status = block.is_error ? 'error' : 'completed';
-                            tool.endTime = timestamp;
-                        }
-                        const agent = agentMap.get(block.tool_use_id);
-                        if (agent) {
-                            agent.status = 'completed';
-                            agent.endTime = timestamp;
-                        }
-                    }
-                }
+        }
+        const startOffset = state.offset;
+        partialTail = consumeLines(fd, state, st.size);
+        subagentDirAgents = storedSubagents && resumed && subagentsDirStateEqual(storedSubagents.dir, currentSubagentsState)
+            ? storedSubagents.agents
+            : await readSubagentDetails(subagentsScan.candidates);
+        if (options.diskCacheDir) {
+            const unchanged = resumed && state.offset === startOffset && storedSubagents !== null
+                && subagentsDirStateEqual(storedSubagents.dir, currentSubagentsState);
+            if (!unchanged) {
+                const fp = fingerprint(fd, state.offset);
+                snapshot = serializeCheckpoint({ state, ino: st.ino, head: fp.head, tail: fp.tail, subagents: { dir: currentSubagentsState, agents: subagentDirAgents } });
             }
-            catch { /* skip malformed */ }
         }
     }
     catch { /* partial results */ }
     finally {
-        fileStream?.destroy();
+        if (fd !== null)
+            closeSync(fd);
     }
-    result.tools = Array.from(toolMap.values()).slice(-20);
-    result.agents = Array.from(agentMap.values()).slice(-10);
-    result.todos = todos;
-    result.thinkingEffort = thinkingEffort;
+    // The checkpoint is serialised before the unterminated tail is applied so
+    // that a half-written line is never persisted; it only shapes this render.
+    if (snapshot && options.diskCacheDir)
+        saveCheckpoint(options.diskCacheDir, resolved, snapshot);
+    if (partialTail !== null)
+        applyLine(state, partialTail);
+    result.sessionStart = state.sessionStart;
+    result.compactionCount = state.compactionCount;
+    result.tools = Array.from(state.toolMap.values()).slice(-20);
+    result.agents = Array.from(state.agentMap.values()).slice(-10);
+    result.todos = state.todos;
+    result.thinkingEffort = state.thinkingEffort;
     // The subagents/ dir alongside the main JSONL is Claude Code's own
     // per-subagent transcript store. It records every agent that ran in this
     // session — including quiet/background ones whose tool_use entry stays
@@ -311,7 +376,6 @@ export async function parseTranscript(transcriptPath) {
     // marker via stop_reason. When present, prefer it over the main-JSONL
     // pairing heuristic. When absent (older Claude Code, layout change), fall
     // back to whatever main-JSONL parsing produced.
-    const subagentDirAgents = await readSubagentDetails(subagentsScan.candidates);
     if (subagentDirAgents.length > 0) {
         if (log.enabled)
             log('subagents-dir override:', subagentDirAgents.length, 'agents replace', result.agents.length, 'from main JSONL');
@@ -322,6 +386,7 @@ export async function parseTranscript(transcriptPath) {
     }
     if (log.enabled) {
         log('parsed', resolved, {
+            resumed,
             tools: result.tools.length,
             agents: result.agents.length,
             todos: result.todos.length,
