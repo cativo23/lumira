@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-11-13
+
 ### Fixed
 
 - **A long session no longer costs a full transcript read on every refresh.** Each refresh is a new process, so lumira re-parsed the whole session transcript every time: 2.7 s of CPU at 120 MB, about 0.7 s at 17 MB. It now keeps a checkpoint per transcript in `~/.cache/lumira/transcripts/` (directory 0700, files 0600, newest 20 kept) and, on the next refresh, reads only the bytes appended since. A statusline refresh on a 120 MB session drops to about 0.23 s of CPU, whether the file is idle or still growing, and a full parse is about 2.5x faster too. The checkpoint is discarded and the file re-parsed if the transcript was replaced or rewritten, is smaller than before, or the checkpoint is corrupt or from another lumira version. A line Claude Code is still writing is picked up once it is complete. To bound the file, it keeps the last 200 tool calls and 50 agents (plus any still running), far more than the statusline shows.
@@ -726,7 +728,8 @@ First stable release. API is now considered stable under SemVer.
 - GSD session IDs sanitized against path traversal
 - `execFile` used instead of `exec` to prevent shell injection (except terminal width detection where shell redirect is required with procfs-sourced paths)
 
-[Unreleased]: https://github.com/cativo23/lumira/compare/v1.20.1...HEAD
+[Unreleased]: https://github.com/cativo23/lumira/compare/v1.21.0...HEAD
+[1.21.0]: https://github.com/cativo23/lumira/compare/v1.20.1...v1.21.0
 [1.20.1]: https://github.com/cativo23/lumira/compare/v1.20.0...v1.20.1
 [1.20.0]: https://github.com/cativo23/lumira/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/cativo23/lumira/compare/v1.18.1...v1.19.0

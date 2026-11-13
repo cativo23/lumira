@@ -55,6 +55,7 @@ Interactive wizard — preset, theme, icons — previewed live before write.
 - [Prompt cache badge](#prompt-cache-badge)
 - [Powerline](#powerline)
 - [Configuration](#configuration)
+- [Performance](#performance)
 - [Custom Widgets](#custom-widgets)
 - [Contributing](#contributing)
 - [License](#license)
@@ -391,6 +392,27 @@ Set `LUMIRA_DEBUG=1` to trace parser decisions on stderr — cache hits, GSD sta
 ```bash
 LUMIRA_DEBUG=1 claude    # or export LUMIRA_DEBUG=1
 ```
+
+## Performance
+
+Claude Code starts lumira as a new process on every update: a new message, or the `refreshInterval` timer when you set one. So the cost of the statusline is the cost of one start, times how often it runs.
+
+- **A start costs roughly 0.15–0.2 s of CPU**, whatever the preset. Toggling widgets off barely changes it; on the author's machine the `minimal` preset was within noise of `full`.
+- **The session transcript is read incrementally.** Lumira keeps a small checkpoint per transcript in `~/.cache/lumira/transcripts/` and, on the next update, parses only the bytes added since. A 120 MB session costs about 0.2 s per update instead of about 2.7 s. The checkpoint holds fragments of your tool inputs (commands, file paths), so the directory is `0700` and the files `0600`. It is safe to delete: lumira rebuilds it on the next update, and also does so by itself if the transcript was replaced or rewritten.
+- **The transcript is skipped entirely** in the minimal layout (the `minimal` preset, a terminal under 70 columns on `layout: "auto"`, or Qwen Code) when `display.tools`, `display.agents` and `display.todos` are all `false`. The multiline layout always needs it: line 1 shows the active todo, and line 2 the compaction count and effort.
+- **`git status` is cached for 15 s**, so the branch and the staged/modified counts can lag by up to that long.
+
+### Choosing `refreshInterval`
+
+`refreshInterval` (seconds, in `config.json`; copied into `settings.json` by `lumira install`) makes Claude Code re-run lumira on a timer, on top of the updates it already triggers. It is off by default. Each tick is one start, so a short interval multiplied by several open sessions adds up: three sessions at `5` is about 36 starts a minute, at `30` about 6 plus the event-driven ones.
+
+| Interval | Use it when |
+|---|---|
+| unset | You only need the statusline to change when something happens. |
+| `30` | A good default if you want clocks (rate-limit resets, prompt-cache countdown) to keep moving. |
+| `5` or less | You want near-live clocks and don't mind the CPU. |
+
+The prompt-cache minute countdown needs `refreshInterval` ≤ 60; see [Prompt cache badge](#prompt-cache-badge). Set `LUMIRA_DEBUG=1` to see whether an update resumed from a checkpoint.
 
 ## Custom Widgets
 

@@ -10,7 +10,7 @@ Create `~/.config/lumira/config.json`:
   "style": "classic",
   "line1Align": "justified",
   "powerline": { "style": "auto" },
-  "refreshInterval": 5,
+  "refreshInterval": 30,
   "gsd": false,
   "colors": { "mode": "auto" },
   "display": {
@@ -59,6 +59,8 @@ Create `~/.config/lumira/config.json`:
 ```
 
 All fields are optional — defaults are shown above (except `refreshInterval`, which is unset/off by default and shown here only as an example). `display.health` defaults to `false` (opt-in widget). `line1Align` controls line 1's classic layout: `"justified"` (default) pins the left cluster to the start and the right cluster to the end; `"packed"` packs every segment tightly to the left with no forced middle gap, except the app version string, which stays pinned to the true right edge (the same idiom line 2 uses for its small right-anchored indicators). On a terminal too narrow to fit the version alongside the packed content, the version disappears entirely rather than truncating — an intentional all-or-nothing tradeoff. Powerline mode always packs.
+
+**Refresh interval** — `refreshInterval` is in seconds (minimum 1) and is off by default. Every tick starts a new lumira process, so a short interval across several open sessions adds CPU; `30` keeps clocks moving at a small fraction of the cost of `5`. See the README's [Performance](../README.md#performance) section.
 
 **Prompt cache badge** — `display.promptCache` warns before the prompt cache goes cold, once it has, and right after a cache miss. Its minute countdown needs `refreshInterval` ≤ 60; without it the badge shows the expiry clock time instead. How to read each state is in the README's [Prompt cache badge](../README.md#prompt-cache-badge) section.
 
