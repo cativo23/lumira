@@ -11,13 +11,18 @@ import { newParseState, fingerprint, loadCheckpoint, saveCheckpoint, serializeCh
 
 const log = debug('transcript');
 
-// Full re-parse on cache miss is intentional. Incremental byte-offset parsing
-// was evaluated and rejected (see #43): real transcripts are low-thousands of
-// lines, parse cost stays under the statusline budget, and stateful
-// accumulation breaks under concurrent ticks, file replacement (TOCTOU), and
-// TaskUpdate's numeric-taskId index semantics. Each call uses local maps
-// (toolMap, agentMap, todos below) — that locality is what keeps the parser
-// concurrent-tick safe. Don't refactor it into shared mutable state.
+// A cold parse is a full read of the file. Incremental parsing was first
+// rejected (see #43) for concurrency, file replacement (TOCTOU) and
+// TaskUpdate's numeric-taskId index semantics, on the premise that transcripts
+// are low-thousands of lines. Real sessions reach 60k lines / 120 MB, and every
+// statusline tick is a fresh process, so this in-memory cache never hits across
+// ticks. The on-disk checkpoint (see transcript-checkpoint.ts) resumes from a
+// byte offset instead. The concerns are met this way: every call builds its own
+// local ParseState (loaded from disk, never shared), a checkpoint is only
+// reused after the inode, the size and a hash of the head and tail of the
+// consumed bytes still match, and the todos array and taskId index are
+// persisted whole so numeric TaskUpdate ids resolve exactly as in a cold parse.
+// This cache stays as the first level for repeated calls within one process.
 //
 // LRU bound: long-running shells switch transcript paths across sessions, so
 // the cache would otherwise grow one entry per session forever (#69). Map

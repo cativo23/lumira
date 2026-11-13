@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentEntry, ThinkingEffort, TodoEntry, ToolEntry } from '../types.js';
+import { sanitizeTermString } from '../normalize.js';
 import type { SubagentsDirState } from './subagents.js';
 
 // Bump whenever the parsing rules or the persisted shape change: an old
@@ -12,6 +13,7 @@ const HEAD_BYTES = 4096;
 const TAIL_BYTES = 256;
 const MAX_CHECKPOINT_BYTES = 8 * 1024 * 1024;
 const MAX_CHECKPOINT_FILES = 20;
+const STALE_TMP_MS = 3600 * 1000;
 // Only the last few tools/agents are ever rendered, so the checkpoint keeps a
 // bounded window (plus anything still running, which a later tool_result must
 // be able to complete) instead of every tool call of a very long session.
@@ -60,20 +62,32 @@ export interface Checkpoint {
   subagents: SubagentsCheckpoint | null;
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+const TOOL_STATUSES = new Set(['running', 'completed', 'error']);
+
 type Timed = { startTime: Date; endTime?: Date };
-type SerializedTimed<T extends Timed> = Omit<T, 'startTime' | 'endTime'> & { startTime: number; endTime?: number };
+// An unparseable `timestamp` yields an Invalid Date, which JSON would turn into
+// null; encode it explicitly so a resumed parse sees what a cold parse sees.
+type Stamp = number | 'invalid';
+type SerializedTimed<T extends Timed> = Omit<T, 'startTime' | 'endTime'> & { startTime: Stamp; endTime?: Stamp };
+
+const toStamp = (d: Date): Stamp => (Number.isNaN(d.getTime()) ? 'invalid' : d.getTime());
+const fromStamp = (v: Stamp): Date => new Date(v === 'invalid' ? NaN : v);
+const isStamp = (v: unknown): v is Stamp => v === 'invalid' || isNum(v);
 
 function toSerializedTimed<T extends Timed>(e: T): SerializedTimed<T> {
   const { startTime, endTime, ...rest } = e;
-  const out = { ...rest, startTime: startTime.getTime() } as SerializedTimed<T>;
-  if (endTime) out.endTime = endTime.getTime();
+  const out = { ...rest, startTime: toStamp(startTime) } as SerializedTimed<T>;
+  if (endTime) out.endTime = toStamp(endTime);
   return out;
 }
 
 function fromSerializedTimed<T extends Timed>(e: SerializedTimed<T>): T {
   const { startTime, endTime, ...rest } = e;
-  const out = { ...rest, startTime: new Date(startTime) } as unknown as T;
-  if (typeof endTime === 'number') out.endTime = new Date(endTime);
+  const out = { ...rest, startTime: fromStamp(startTime) } as unknown as T;
+  if (endTime !== undefined) out.endTime = fromStamp(endTime);
   return out;
 }
 
@@ -109,7 +123,7 @@ export function serializeCheckpoint(cp: Checkpoint): string {
     offset: s.offset,
     lineCount: s.lineCount,
     truncated: s.truncated,
-    sessionStart: s.sessionStart ? s.sessionStart.getTime() : null,
+    sessionStart: s.sessionStart ? toStamp(s.sessionStart) : null,
     compactionCount: s.compactionCount,
     thinkingEffort: s.thinkingEffort,
     tools: boundedTail([...s.toolMap.values()], KEEP_TOOLS).map(toSerializedTimed),
@@ -122,12 +136,27 @@ export function serializeCheckpoint(cp: Checkpoint): string {
   });
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+function validTimed(v: unknown): v is Record<string, unknown> & { id: string } {
+  return isRecord(v) && typeof v.id === 'string' && isStamp(v.startTime) && (v.endTime === undefined || isStamp(v.endTime));
+}
+
+// Fields are re-validated and re-sanitised on load: the checkpoint is a file
+// on disk, so what comes back is not trusted to be what parseTranscript wrote.
+function readAgent(v: unknown): AgentEntry | null {
+  if (!validTimed(v) || typeof v.type !== 'string' || !TOOL_STATUSES.has(v.status as string)) return null;
+  for (const k of ['model', 'description'] as const) {
+    if (v[k] !== undefined && typeof v[k] !== 'string') return null;
+  }
+  const agent = fromSerializedTimed<AgentEntry>(v as unknown as SerializedTimed<AgentEntry>);
+  agent.type = sanitizeTermString(agent.type);
+  if (agent.model !== undefined) agent.model = sanitizeTermString(agent.model);
+  if (agent.description !== undefined) agent.description = sanitizeTermString(agent.description);
+  return agent;
+}
 
 function deserializeCheckpoint(raw: unknown): Checkpoint | null {
   if (!isRecord(raw) || raw.schema !== CHECKPOINT_SCHEMA) return null;
-  if (!isNum(raw.ino) || !isNum(raw.offset) || !isNum(raw.lineCount) || !isNum(raw.compactionCount)) return null;
+  if (!isCount(raw.ino) || !isCount(raw.offset) || !isCount(raw.lineCount) || !isCount(raw.compactionCount)) return null;
   if (typeof raw.head !== 'string' || typeof raw.tail !== 'string' || typeof raw.truncated !== 'boolean') return null;
   if (typeof raw.thinkingEffort !== 'string') return null;
   if (!Array.isArray(raw.tools) || !Array.isArray(raw.agents) || !Array.isArray(raw.todos) || !Array.isArray(raw.taskIds)) return null;
@@ -138,23 +167,28 @@ function deserializeCheckpoint(raw: unknown): Checkpoint | null {
   state.compactionCount = raw.compactionCount;
   state.thinkingEffort = raw.thinkingEffort as ThinkingEffort;
   if (raw.sessionStart !== null) {
-    if (!isNum(raw.sessionStart)) return null;
-    state.sessionStart = new Date(raw.sessionStart);
+    if (!isStamp(raw.sessionStart)) return null;
+    state.sessionStart = fromStamp(raw.sessionStart);
   }
   for (const t of raw.tools) {
-    if (!isRecord(t) || typeof t.id !== 'string' || !isNum(t.startTime)) return null;
-    state.toolMap.set(t.id, fromSerializedTimed<ToolEntry>(t as unknown as SerializedTimed<ToolEntry>));
+    if (!validTimed(t) || typeof t.name !== 'string' || !TOOL_STATUSES.has(t.status as string)) return null;
+    if (t.target !== undefined && typeof t.target !== 'string') return null;
+    const tool = fromSerializedTimed<ToolEntry>(t as unknown as SerializedTimed<ToolEntry>);
+    tool.name = sanitizeTermString(tool.name);
+    if (tool.target !== undefined) tool.target = sanitizeTermString(tool.target);
+    state.toolMap.set(tool.id, tool);
   }
   for (const a of raw.agents) {
-    if (!isRecord(a) || typeof a.id !== 'string' || !isNum(a.startTime)) return null;
-    state.agentMap.set(a.id, fromSerializedTimed<AgentEntry>(a as unknown as SerializedTimed<AgentEntry>));
+    const agent = readAgent(a);
+    if (!agent) return null;
+    state.agentMap.set(agent.id, agent);
   }
   for (const t of raw.todos) {
-    if (!isRecord(t) || typeof t.content !== 'string') return null;
+    if (!isRecord(t) || typeof t.content !== 'string' || typeof t.id !== 'string' || !['pending', 'in_progress', 'completed'].includes(t.status as string)) return null;
     state.todos.push(t as unknown as TodoEntry);
   }
   for (const pair of raw.taskIds) {
-    if (!Array.isArray(pair) || typeof pair[0] !== 'string' || !isNum(pair[1])) return null;
+    if (!Array.isArray(pair) || typeof pair[0] !== 'string' || !isCount(pair[1])) return null;
     state.taskIdToIndex.set(pair[0], pair[1]);
   }
   let subagents: SubagentsCheckpoint | null = null;
@@ -166,8 +200,9 @@ function deserializeCheckpoint(raw: unknown): Checkpoint | null {
       : null;
     const agents: AgentEntry[] = [];
     for (const a of sa.agents) {
-      if (!isRecord(a) || typeof a.id !== 'string' || !isNum(a.startTime)) return null;
-      agents.push(fromSerializedTimed<AgentEntry>(a as unknown as SerializedTimed<AgentEntry>));
+      const agent = readAgent(a);
+      if (!agent) return null;
+      agents.push(agent);
     }
     subagents = { dir, agents };
   }
@@ -185,6 +220,7 @@ function dirIsTrusted(cacheDir: string): boolean {
     const st = lstatSync(cacheDir);
     if (!st.isDirectory() || st.isSymbolicLink()) return false;
     if (typeof process.getuid === 'function' && st.uid !== process.getuid()) return false;
+    if (process.platform !== 'win32' && (st.mode & 0o022) !== 0) return false;
     return true;
   } catch {
     return false;
@@ -205,7 +241,14 @@ export function loadCheckpoint(cacheDir: string, resolvedTranscript: string): Ch
 
 function prune(cacheDir: string): void {
   try {
-    const files = readdirSync(cacheDir)
+    const all = readdirSync(cacheDir);
+    for (const f of all) {
+      if (!f.endsWith('.tmp')) continue;
+      try {
+        if (Date.now() - statSync(join(cacheDir, f)).mtimeMs > STALE_TMP_MS) unlinkSync(join(cacheDir, f));
+      } catch { /* concurrent writer finished */ }
+    }
+    const files = all
       .filter(f => f.endsWith('.json'))
       .map(f => ({ f, m: statSync(join(cacheDir, f)).mtimeMs }));
     if (files.length <= MAX_CHECKPOINT_FILES) return;
@@ -217,11 +260,14 @@ function prune(cacheDir: string): void {
 }
 
 export function saveCheckpoint(cacheDir: string, resolvedTranscript: string, serialized: string): void {
+  // A checkpoint over the load cap would be rewritten every tick and never read.
+  if (serialized.length > MAX_CHECKPOINT_BYTES) return;
+  let tmp: string | null = null;
   try {
     mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
     if (!dirIsTrusted(cacheDir)) return;
     const path = checkpointPath(cacheDir, resolvedTranscript);
-    const tmp = `${path}.${randomBytes(8).toString('hex')}.tmp`;
+    tmp = `${path}.${randomBytes(8).toString('hex')}.tmp`;
     const fd = openSync(tmp, 'wx', 0o600);
     try {
       writeSync(fd, serialized);
@@ -229,6 +275,11 @@ export function saveCheckpoint(cacheDir: string, resolvedTranscript: string, ser
       closeSync(fd);
     }
     renameSync(tmp, path);
+    tmp = null;
     prune(cacheDir);
-  } catch { /* checkpoint is best effort; the next tick just parses more */ }
+  } catch {
+    /* checkpoint is best effort; the next tick just parses more */
+  } finally {
+    if (tmp) { try { unlinkSync(tmp); } catch { /* already gone */ } }
+  }
 }

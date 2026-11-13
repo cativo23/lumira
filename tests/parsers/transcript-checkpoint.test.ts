@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parseTranscript, _clearTranscriptCache, MAX_LINES } from '../../src/parsers/transcript.js';
@@ -213,5 +213,99 @@ describe('transcript checkpoint resume', () => {
     appendFileSync(file, target('newtool'));
     const resumed = await warm(file);
     expect(resumed.tools.map(t => t.id)).toEqual(['midtool', 'newtool']);
+  });
+
+  it('rejects a checkpoint with a negative offset and recovers with a full parse', async () => {
+    writeFileSync(file, lines('transcript-basic.jsonl').map(l => l + '\n').join(''));
+    const first = await warm(file);
+    const [cp] = checkpointFiles();
+    const p = join(cacheDir, cp);
+    const doc = JSON.parse(readFileSync(p, 'utf8'));
+    doc.offset = -5;
+    writeFileSync(p, JSON.stringify(doc));
+    expect(await warm(file)).toEqual(first);
+    expect(JSON.parse(readFileSync(p, 'utf8')).offset).toBeGreaterThan(0);
+  });
+
+  it('sanitises and validates tool fields loaded from a tampered checkpoint', async () => {
+    writeFileSync(file, lines('transcript-tools.jsonl').map(l => l + '\n').join(''));
+    const first = await warm(file);
+    const [cp] = checkpointFiles();
+    const p = join(cacheDir, cp);
+    const doc = JSON.parse(readFileSync(p, 'utf8'));
+    doc.tools[0].name = 'Ba\u001b[31msh';
+    doc.tools[1].target = 42;
+    writeFileSync(p, JSON.stringify(doc));
+    const second = await warm(file);
+    expect(second).toEqual(first);
+  });
+
+  it('refuses a cache directory that is group or world writable', async () => {
+    mkdirSync(cacheDir, { recursive: true, mode: 0o777 });
+    chmodSync(cacheDir, 0o777);
+    writeFileSync(file, lines('transcript-basic.jsonl').map(l => l + '\n').join(''));
+    await warm(file);
+    expect(checkpointFiles()).toEqual([]);
+  });
+
+  it('removes the temp file when the write fails and sweeps stale temp files', async () => {
+    mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+    const stale = join(cacheDir, 'old.json.deadbeef.tmp');
+    writeFileSync(stale, 'x');
+    const old = new Date(Date.now() - 2 * 3600 * 1000);
+    utimesSync(stale, old, old);
+    writeFileSync(file, lines('transcript-basic.jsonl').map(l => l + '\n').join(''));
+    for (let i = 0; i < 22; i++) {
+      const other = join(dir, `s${i}.jsonl`);
+      writeFileSync(other, lines('transcript-basic.jsonl').map(l => l + '\n').join(''));
+      await warm(other);
+    }
+    expect(existsSync(stale)).toBe(false);
+    expect(readdirSync(cacheDir).filter(f => f.endsWith('.tmp'))).toEqual([]);
+    expect(checkpointFiles().length).toBeLessThanOrEqual(20);
+  });
+
+  it('round-trips an unparseable timestamp the way a cold parse sees it', async () => {
+    const bad = JSON.stringify({ timestamp: 'not-a-date', message: { content: [{ type: 'tool_use', id: 'x', name: 'Read', input: { file_path: '/a' } }] } }) + '\n';
+    const good = JSON.stringify({ timestamp: '2026-05-01T10:00:00Z', message: { content: [{ type: 'tool_use', id: 'y', name: 'Read', input: { file_path: '/b' } }] } }) + '\n';
+    writeFileSync(file, bad);
+    await warm(file);
+    appendFileSync(file, good);
+    const resumed = await warm(file);
+    writeFileSync(join(dir, 'full.jsonl'), bad + good);
+    expect(resumed).toEqual(await cold(join(dir, 'full.jsonl')));
+    expect(Number.isNaN(resumed.sessionStart?.getTime())).toBe(true);
+  });
+
+  it('resumes correctly across 1 MiB read chunks with multibyte text and CRLF', async () => {
+    const mk = (i: number, text: string) => JSON.stringify({ timestamp: '2026-05-01T10:00:00Z', message: { content: [{ type: 'text', text }, { type: 'tool_use', id: `m${i}`, name: 'Read', input: { file_path: `/f${i}` } }] } });
+    const rows: string[] = [];
+    for (let i = 0; i < 40; i++) rows.push(mk(i, '日本語🙂'.repeat(8000 + (i % 7) * 311)));
+    const first = rows.slice(0, 25).join('\r\n') + '\r\n';
+    const rest = rows.slice(25).join('\r\n') + '\r\n';
+    writeFileSync(file, first);
+    expect(statSync(file).size).toBeGreaterThan(2 * 1024 * 1024);
+    await warm(file);
+    appendFileSync(file, rest);
+    const resumed = await warm(file);
+    writeFileSync(join(dir, 'full.jsonl'), first + rest);
+    expect(resumed).toEqual(await cold(join(dir, 'full.jsonl')));
+    expect(resumed.tools.map(t => t.id)).toEqual(Array.from({ length: 20 }, (_, i) => `m${20 + i}`));
+  });
+
+  it('keeps only a bounded window of tools in the checkpoint but still reports the latest', async () => {
+    const mk = (i: number, done: boolean) => JSON.stringify({ timestamp: '2026-05-01T10:00:00Z', message: { content: [{ type: 'tool_use', id: `b${i}`, name: 'Read', input: { file_path: `/f${i}` } }, ...(done ? [{ type: 'tool_result', tool_use_id: `b${i}` }] : [])] } }) + '\n';
+    let body = mk(0, false);
+    for (let i = 1; i < 400; i++) body += mk(i, true);
+    writeFileSync(file, body);
+    await warm(file);
+    const [cp] = checkpointFiles();
+    const doc = JSON.parse(readFileSync(join(cacheDir, cp), 'utf8'));
+    expect(doc.tools.length).toBeLessThanOrEqual(201);
+    expect(doc.tools.some((t: { id: string }) => t.id === 'b0')).toBe(true);
+    appendFileSync(file, mk(400, true));
+    const resumed = await warm(file);
+    expect(resumed.tools.at(-1)?.id).toBe('b400');
+    expect(resumed.tools).toHaveLength(20);
   });
 });

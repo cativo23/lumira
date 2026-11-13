@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
+import { sanitizeTermString } from '../normalize.js';
 // Bump whenever the parsing rules or the persisted shape change: an old
 // checkpoint would otherwise resume under rules it was not produced with.
 export const CHECKPOINT_SCHEMA = 1;
@@ -8,6 +9,7 @@ const HEAD_BYTES = 4096;
 const TAIL_BYTES = 256;
 const MAX_CHECKPOINT_BYTES = 8 * 1024 * 1024;
 const MAX_CHECKPOINT_FILES = 20;
+const STALE_TMP_MS = 3600 * 1000;
 // Only the last few tools/agents are ever rendered, so the checkpoint keeps a
 // bounded window (plus anything still running, which a later tool_result must
 // be able to complete) instead of every tool call of a very long session.
@@ -27,18 +29,25 @@ export function newParseState() {
         taskIdToIndex: new Map(),
     };
 }
+const isRecord = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+const isCount = (v) => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+const TOOL_STATUSES = new Set(['running', 'completed', 'error']);
+const toStamp = (d) => (Number.isNaN(d.getTime()) ? 'invalid' : d.getTime());
+const fromStamp = (v) => new Date(v === 'invalid' ? NaN : v);
+const isStamp = (v) => v === 'invalid' || isNum(v);
 function toSerializedTimed(e) {
     const { startTime, endTime, ...rest } = e;
-    const out = { ...rest, startTime: startTime.getTime() };
+    const out = { ...rest, startTime: toStamp(startTime) };
     if (endTime)
-        out.endTime = endTime.getTime();
+        out.endTime = toStamp(endTime);
     return out;
 }
 function fromSerializedTimed(e) {
     const { startTime, endTime, ...rest } = e;
-    const out = { ...rest, startTime: new Date(startTime) };
-    if (typeof endTime === 'number')
-        out.endTime = new Date(endTime);
+    const out = { ...rest, startTime: fromStamp(startTime) };
+    if (endTime !== undefined)
+        out.endTime = fromStamp(endTime);
     return out;
 }
 function boundedTail(entries, keep) {
@@ -70,7 +79,7 @@ export function serializeCheckpoint(cp) {
         offset: s.offset,
         lineCount: s.lineCount,
         truncated: s.truncated,
-        sessionStart: s.sessionStart ? s.sessionStart.getTime() : null,
+        sessionStart: s.sessionStart ? toStamp(s.sessionStart) : null,
         compactionCount: s.compactionCount,
         thinkingEffort: s.thinkingEffort,
         tools: boundedTail([...s.toolMap.values()], KEEP_TOOLS).map(toSerializedTimed),
@@ -82,12 +91,30 @@ export function serializeCheckpoint(cp) {
             : null,
     });
 }
-const isRecord = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+function validTimed(v) {
+    return isRecord(v) && typeof v.id === 'string' && isStamp(v.startTime) && (v.endTime === undefined || isStamp(v.endTime));
+}
+// Fields are re-validated and re-sanitised on load: the checkpoint is a file
+// on disk, so what comes back is not trusted to be what parseTranscript wrote.
+function readAgent(v) {
+    if (!validTimed(v) || typeof v.type !== 'string' || !TOOL_STATUSES.has(v.status))
+        return null;
+    for (const k of ['model', 'description']) {
+        if (v[k] !== undefined && typeof v[k] !== 'string')
+            return null;
+    }
+    const agent = fromSerializedTimed(v);
+    agent.type = sanitizeTermString(agent.type);
+    if (agent.model !== undefined)
+        agent.model = sanitizeTermString(agent.model);
+    if (agent.description !== undefined)
+        agent.description = sanitizeTermString(agent.description);
+    return agent;
+}
 function deserializeCheckpoint(raw) {
     if (!isRecord(raw) || raw.schema !== CHECKPOINT_SCHEMA)
         return null;
-    if (!isNum(raw.ino) || !isNum(raw.offset) || !isNum(raw.lineCount) || !isNum(raw.compactionCount))
+    if (!isCount(raw.ino) || !isCount(raw.offset) || !isCount(raw.lineCount) || !isCount(raw.compactionCount))
         return null;
     if (typeof raw.head !== 'string' || typeof raw.tail !== 'string' || typeof raw.truncated !== 'boolean')
         return null;
@@ -102,27 +129,34 @@ function deserializeCheckpoint(raw) {
     state.compactionCount = raw.compactionCount;
     state.thinkingEffort = raw.thinkingEffort;
     if (raw.sessionStart !== null) {
-        if (!isNum(raw.sessionStart))
+        if (!isStamp(raw.sessionStart))
             return null;
-        state.sessionStart = new Date(raw.sessionStart);
+        state.sessionStart = fromStamp(raw.sessionStart);
     }
     for (const t of raw.tools) {
-        if (!isRecord(t) || typeof t.id !== 'string' || !isNum(t.startTime))
+        if (!validTimed(t) || typeof t.name !== 'string' || !TOOL_STATUSES.has(t.status))
             return null;
-        state.toolMap.set(t.id, fromSerializedTimed(t));
+        if (t.target !== undefined && typeof t.target !== 'string')
+            return null;
+        const tool = fromSerializedTimed(t);
+        tool.name = sanitizeTermString(tool.name);
+        if (tool.target !== undefined)
+            tool.target = sanitizeTermString(tool.target);
+        state.toolMap.set(tool.id, tool);
     }
     for (const a of raw.agents) {
-        if (!isRecord(a) || typeof a.id !== 'string' || !isNum(a.startTime))
+        const agent = readAgent(a);
+        if (!agent)
             return null;
-        state.agentMap.set(a.id, fromSerializedTimed(a));
+        state.agentMap.set(agent.id, agent);
     }
     for (const t of raw.todos) {
-        if (!isRecord(t) || typeof t.content !== 'string')
+        if (!isRecord(t) || typeof t.content !== 'string' || typeof t.id !== 'string' || !['pending', 'in_progress', 'completed'].includes(t.status))
             return null;
         state.todos.push(t);
     }
     for (const pair of raw.taskIds) {
-        if (!Array.isArray(pair) || typeof pair[0] !== 'string' || !isNum(pair[1]))
+        if (!Array.isArray(pair) || typeof pair[0] !== 'string' || !isCount(pair[1]))
             return null;
         state.taskIdToIndex.set(pair[0], pair[1]);
     }
@@ -136,9 +170,10 @@ function deserializeCheckpoint(raw) {
             : null;
         const agents = [];
         for (const a of sa.agents) {
-            if (!isRecord(a) || typeof a.id !== 'string' || !isNum(a.startTime))
+            const agent = readAgent(a);
+            if (!agent)
                 return null;
-            agents.push(fromSerializedTimed(a));
+            agents.push(agent);
         }
         subagents = { dir, agents };
     }
@@ -155,6 +190,8 @@ function dirIsTrusted(cacheDir) {
         if (!st.isDirectory() || st.isSymbolicLink())
             return false;
         if (typeof process.getuid === 'function' && st.uid !== process.getuid())
+            return false;
+        if (process.platform !== 'win32' && (st.mode & 0o022) !== 0)
             return false;
         return true;
     }
@@ -178,7 +215,17 @@ export function loadCheckpoint(cacheDir, resolvedTranscript) {
 }
 function prune(cacheDir) {
     try {
-        const files = readdirSync(cacheDir)
+        const all = readdirSync(cacheDir);
+        for (const f of all) {
+            if (!f.endsWith('.tmp'))
+                continue;
+            try {
+                if (Date.now() - statSync(join(cacheDir, f)).mtimeMs > STALE_TMP_MS)
+                    unlinkSync(join(cacheDir, f));
+            }
+            catch { /* concurrent writer finished */ }
+        }
+        const files = all
             .filter(f => f.endsWith('.json'))
             .map(f => ({ f, m: statSync(join(cacheDir, f)).mtimeMs }));
         if (files.length <= MAX_CHECKPOINT_FILES)
@@ -194,12 +241,16 @@ function prune(cacheDir) {
     catch { /* best effort */ }
 }
 export function saveCheckpoint(cacheDir, resolvedTranscript, serialized) {
+    // A checkpoint over the load cap would be rewritten every tick and never read.
+    if (serialized.length > MAX_CHECKPOINT_BYTES)
+        return;
+    let tmp = null;
     try {
         mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
         if (!dirIsTrusted(cacheDir))
             return;
         const path = checkpointPath(cacheDir, resolvedTranscript);
-        const tmp = `${path}.${randomBytes(8).toString('hex')}.tmp`;
+        tmp = `${path}.${randomBytes(8).toString('hex')}.tmp`;
         const fd = openSync(tmp, 'wx', 0o600);
         try {
             writeSync(fd, serialized);
@@ -208,8 +259,19 @@ export function saveCheckpoint(cacheDir, resolvedTranscript, serialized) {
             closeSync(fd);
         }
         renameSync(tmp, path);
+        tmp = null;
         prune(cacheDir);
     }
-    catch { /* checkpoint is best effort; the next tick just parses more */ }
+    catch {
+        /* checkpoint is best effort; the next tick just parses more */
+    }
+    finally {
+        if (tmp) {
+            try {
+                unlinkSync(tmp);
+            }
+            catch { /* already gone */ }
+        }
+    }
 }
 //# sourceMappingURL=transcript-checkpoint.js.map
