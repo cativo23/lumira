@@ -287,3 +287,130 @@ describe('parseConfig', () => {
     expect(resolveRowOptions(parseConfig('{'))).toEqual(DEFAULT_ROW_OPTIONS);
   });
 });
+
+// Exotic characters are built from code points so nothing in this file depends
+// on how an editor or a shell expands escape sequences.
+const cp = (...codes: number[]): string => String.fromCodePoint(...codes);
+const ESC = cp(0x1b);
+const BEL = cp(0x07);
+const INVISIBLES = new RegExp(
+  `[${cp(0x200b)}-${cp(0x200f)}${cp(0x202a)}-${cp(0x202e)}${cp(0x2066)}-${cp(0x2069)}]`,
+);
+const SEPARATORS = new RegExp(`[${cp(0x2028)}${cp(0x2029)}]`);
+
+describe('formatRow with odd engine data', () => {
+  it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty'])(
+    'should_treat_the_prototype_key_%s_as_an_unknown_status',
+    (taskStatus) => {
+      const raw = formatRow({ ...running, taskStatus }, DEFAULT_ROW_OPTIONS, NOW);
+      expect(raw).not.toContain('function');
+      expect(raw).not.toContain('native code');
+      expect(raw).toContain(`${ESC}[2m${taskStatus}${ESC}[0m`);
+      expect(strip(raw)).not.toMatch(/^[◔✔⚠–◌] /);
+    },
+  );
+
+  it.each([
+    [{}],
+    [{ usd: null }],
+    [{ usd: Number.NaN }],
+    [{ usd: Number.POSITIVE_INFINITY }],
+    [{ usd: -1 }],
+    [{ usd: '0.05' }],
+  ])('should_omit_the_cost_for_%j_instead_of_throwing', (cost) => {
+    const text = strip(formatRow({ ...running, cost } as unknown as AgentView, DEFAULT_ROW_OPTIONS, NOW));
+    expect(text).not.toContain('$');
+    expect(text).toContain('running');
+  });
+
+  it.each([undefined, Number.NaN, Number.POSITIVE_INFINITY])(
+    'should_omit_elapsed_for_a_running_agent_whose_startTime_is_%s',
+    (startTime) => {
+      const text = strip(formatRow({ ...running, startTime } as unknown as AgentView, DEFAULT_ROW_OPTIONS, NOW));
+      expect(text).not.toContain('NaN');
+      expect(text).not.toContain('Infinity');
+      expect(text).not.toMatch(/\d+[hms]\b/);
+    },
+  );
+
+  it('should_show_zero_seconds_for_a_start_time_in_the_future', () => {
+    expect(strip(formatRow({ ...running, startTime: NOW + 5_000 }, DEFAULT_ROW_OPTIONS, NOW))).toContain('0s');
+  });
+
+  it.each([undefined, null, 'x'])('should_skip_the_sparkline_when_tokenSamples_is_%s', (tokenSamples) => {
+    const opts = { ...DEFAULT_ROW_OPTIONS, sparkline: true };
+    const text = strip(formatRow({ ...running, tokenSamples } as unknown as AgentView, opts, NOW));
+    expect(text).not.toMatch(/[▁-█]/);
+    expect(text).toContain('running');
+  });
+
+  it('should_ignore_non_finite_and_negative_samples_when_scaling_the_sparkline', () => {
+    const opts = { ...DEFAULT_ROW_OPTIONS, sparkline: true };
+    const text = strip(formatRow({ ...running, tokenSamples: [Number.NaN, -5, 10, 40] }, opts, NOW));
+    expect(text).toMatch(/▁▁▂█/);
+  });
+
+  it('should_scale_the_sparkline_to_the_readings_it_draws_not_to_an_older_peak', () => {
+    const opts = { ...DEFAULT_ROW_OPTIONS, sparkline: true };
+    const samples = [1_000_000, 10, 20, 30, 40, 50, 60, 70, 80];
+    const text = strip(formatRow({ ...running, tokenSamples: samples }, opts, NOW));
+    const bars = text.match(/[▁-█]+/)?.[0] ?? '';
+    expect(bars).toHaveLength(8);
+    expect(bars.endsWith('█')).toBe(true);
+  });
+
+  it.each([Number.NaN, -10, Number.POSITIVE_INFINITY])('should_omit_context_when_tokenCount_is_%s', (tokenCount) => {
+    const text = strip(formatRow({ ...running, tokenCount }, DEFAULT_ROW_OPTIONS, NOW));
+    expect(text).not.toContain('NaN');
+    expect(text).not.toContain('Infinity');
+    expect(text).not.toContain('%');
+    expect(text).not.toContain(' tok');
+  });
+
+  it('should_show_a_context_over_100_percent_as_it_is', () => {
+    const text = strip(formatRow({ ...running, tokenCount: 1_200_000 }, DEFAULT_ROW_OPTIONS, NOW));
+    expect(text).toContain('120%');
+  });
+});
+
+describe('formatRow sanitising', () => {
+  const body = (description: string) => formatRow({ ...running, description }, DEFAULT_ROW_OPTIONS, NOW);
+
+  it('should_drop_bidi_overrides_and_zero_width_characters', () => {
+    const raw = body(`a${cp(0x202e)}b${cp(0x200b)}c${cp(0x2066)}d${cp(0x200f)}e`);
+    expect(raw).not.toMatch(INVISIBLES);
+    expect(strip(raw)).toContain('abcde');
+  });
+
+  it('should_turn_line_and_paragraph_separators_into_spaces', () => {
+    const raw = body(`one${cp(0x2028)}two${cp(0x2029)}three`);
+    expect(raw).not.toMatch(SEPARATORS);
+    expect(strip(raw)).toContain('one two three');
+  });
+
+  it('should_remove_a_complete_csi_sequence', () => {
+    const raw = body(`x${ESC}[2Jy`);
+    expect(raw).not.toContain('[2J');
+    expect(strip(raw)).toContain('xy');
+  });
+
+  it('should_replace_an_eight_bit_csi_introducer', () => {
+    expect(body(`a${cp(0x9b)}31mb`)).not.toContain(cp(0x9b));
+  });
+
+  it('should_drop_an_unterminated_osc_to_the_end_of_the_text', () => {
+    const raw = body(`safe${ESC}]0;title with no terminator`);
+    expect(raw).not.toContain(`${ESC}]`);
+    expect(strip(raw)).toContain('safe');
+    expect(strip(raw)).not.toContain('title');
+  });
+
+  it('should_not_leave_a_bare_escape_character_in_the_row_text', () => {
+    const raw = body(`a${ESC}Qb`);
+    expect(raw.split(`${ESC}[`).join('')).not.toContain(ESC);
+  });
+
+  it('should_drop_a_bell_from_an_osc_title', () => {
+    expect(body(`a${ESC}]0;t${BEL}b`)).not.toContain(BEL);
+  });
+});

@@ -73,17 +73,30 @@ export function parseConfig(text: string): unknown {
 const sgr = (code: number, s: string): string => `\u001b[${code}m${s}\u001b[0m`;
 const dim = (s: string): string => sgr(2, s);
 
-// Agent strings are model- or user-authored: drop escape sequences and control
-// characters so a description can never move the cursor or forge a link.
+const cp = (...codes: number[]): string => String.fromCodePoint(...codes);
+
+// Zero-width marks and bidirectional overrides reorder or hide text without
+// being control characters; the separators would break the row onto two lines.
+const INVISIBLE = new RegExp(
+  `[${cp(0x200b)}-${cp(0x200f)}${cp(0x202a)}-${cp(0x202e)}${cp(0x2066)}-${cp(0x2069)}]`,
+  'g',
+);
+const SEPARATORS = new RegExp(`[${cp(0x2028)}${cp(0x2029)}]`, 'g');
+
+// Agent strings are model- or user-authored: drop escape sequences, control
+// characters and invisible reordering marks so a description can never move the
+// cursor, forge a link or disguise itself.
 const clean = (v: unknown): string =>
   String(v ?? '')
     .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g, '')
     .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replace(INVISIBLE, '')
+    .replace(SEPARATORS, ' ')
     .trim();
 
 export function formatDuration(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
+  const s = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 0;
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m${String(s % 60).padStart(2, '0')}s`;
@@ -104,14 +117,19 @@ export function shortModel(model: string): string {
 
 const BARS = '▁▂▃▄▅▆▇█';
 
-function sparkline(samples: number[]): string {
-  const max = Math.max(...samples);
-  if (samples.length < 2 || !(max > 0)) return '';
-  return samples
-    .slice(-8)
+// Scaled to the readings it draws, so an old peak that has scrolled out of the
+// window does not flatten what is still on screen.
+function sparkline(samples: unknown): string {
+  if (!Array.isArray(samples)) return '';
+  const recent = samples.slice(-8).map(v => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0));
+  const max = Math.max(0, ...recent);
+  if (recent.length < 2 || max <= 0) return '';
+  return recent
     .map(v => BARS[Math.min(BARS.length - 1, Math.floor((v / max) * (BARS.length - 1)))])
     .join('');
 }
+
+const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
 
 const STATUS_COLOR: Record<string, number> = {
   running: 36,
@@ -144,8 +162,9 @@ const contextColor = (pct: number): number => (pct >= 85 ? 31 : pct >= 60 ? 33 :
 
 export function formatRow(agent: AgentView, options: RowOptions, now: number): string {
   const status = clean(agent.taskStatus);
-  const code = STATUS_COLOR[status] ?? 2;
-  const icon = (options.ascii ? ASCII : GLYPHS)[status];
+  const code = (has(STATUS_COLOR, status) ? STATUS_COLOR[status] : undefined) ?? 2;
+  const icons = options.ascii ? ASCII : GLYPHS;
+  const icon = has(icons, status) ? icons[status] : undefined;
   const isRunning = status === 'running';
 
   const who: string[] = [];
@@ -154,13 +173,15 @@ export function formatRow(agent: AgentView, options: RowOptions, now: number): s
   if (options.effort && agent.effort !== undefined) who.push(clean(agent.effort));
 
   const bits: string[] = [];
-  if (options.elapsed && isRunning) bits.push(formatDuration(now - agent.startTime));
-  if (options.cost && agent.cost) bits.push(`$${agent.cost.usd.toFixed(2)}`);
-  if (options.context) {
-    if (agent.contextWindowSize) {
-      const pct = Math.round((agent.tokenCount / agent.contextWindowSize) * 100);
-      const used = `${compactTokens(agent.tokenCount)}/${compactTokens(agent.contextWindowSize)}`;
-      bits.push(`${used} ${sgr(contextColor(pct), `${pct}%`)}`);
+  if (options.elapsed && isRunning && Number.isFinite(agent.startTime)) {
+    bits.push(formatDuration(now - agent.startTime));
+  }
+  if (options.cost && isCount(agent.cost?.usd)) bits.push(`$${agent.cost.usd.toFixed(2)}`);
+  if (options.context && isCount(agent.tokenCount)) {
+    const window = agent.contextWindowSize;
+    if (isCount(window) && window > 0) {
+      const pct = Math.round((agent.tokenCount / window) * 100);
+      bits.push(`${compactTokens(agent.tokenCount)}/${compactTokens(window)} ${sgr(contextColor(pct), `${pct}%`)}`);
     } else {
       bits.push(`${compactTokens(agent.tokenCount)} tok`);
     }
