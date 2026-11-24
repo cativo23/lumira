@@ -110,9 +110,8 @@ function getVersion() {
         return 'unknown';
     }
 }
-function printHelp() {
-    const version = getVersion();
-    const usage = `lumira v${version}
+export function helpText(version) {
+    return `lumira v${version}
 
 Usage: lumira [command]
 
@@ -122,7 +121,7 @@ Commands:
   stats [path]  Show session statistics
   themes        Browse and preview themes
   widget        Manage custom widgets (alias: custom)
-  subagent      Render Claude Code agent-panel rows (reads tasks JSON from stdin)
+  subagent      Deprecated: Claude Code 2.1.323+ ignores subagentStatusLine; use the lumira-agentrow mod
 
 Options:
   --help, -h    Show this help
@@ -130,7 +129,9 @@ Options:
 
 Run lumira with no arguments to render the statusline (requires Claude Code stdin).
 `;
-    process.stdout.write(usage);
+}
+function printHelp() {
+    process.stdout.write(helpText(getVersion()));
 }
 // install/uninstall change settings.json, so a help flag anywhere after them
 // must show help rather than run them.

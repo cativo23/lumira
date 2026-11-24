@@ -87,10 +87,10 @@ export function commandSpeed(command) {
     return 2;
 }
 // Is `lumira` resolvable as a global bin on PATH?
-function defaultHasGlobalBin() {
+export function defaultHasGlobalBin() {
     const probe = process.platform === 'win32' ? 'where' : 'which';
     try {
-        execFileSync(probe, ['lumira'], { stdio: 'ignore', timeout: 3000 });
+        execFileSync(probe, ['lumira'], { stdio: 'ignore', timeout: 3000, cwd: homedir() });
         return true;
     }
     catch {
@@ -98,9 +98,9 @@ function defaultHasGlobalBin() {
     }
 }
 // Install lumira globally so the per-render command can invoke it directly.
-function defaultInstallGlobal() {
+export function defaultInstallGlobal() {
     try {
-        execFileSync('npm', ['install', '-g', 'lumira'], { stdio: 'inherit', timeout: 120000 });
+        execFileSync('npm', ['install', '-g', 'lumira'], { stdio: 'inherit', timeout: 120000, cwd: homedir() });
         return true;
     }
     catch {

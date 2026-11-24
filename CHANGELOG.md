@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`lumira subagent` is marked deprecated in `--help`.** Claude Code 2.1.323 and later ignore `subagentStatusLine`; the `lumira-agentrow` mod replaces it. The command still works for older Claude Code versions.
+
+### Fixed
+
+- **The installer's `which`/`where lumira` probe and `npm install -g lumira` now run from the home directory,** so a `lumira` or `npm` binary planted in the current directory can't win the lookup on Windows. Same hardening `claude --version` already had.
+
 ## [1.22.1] - 2026-11-24
 
 ### Fixed
