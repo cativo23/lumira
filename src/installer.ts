@@ -9,6 +9,13 @@ import { runWizard } from './installer-wizard.js';
 import { saveConfig, loadConfig, type WizardResult } from './config.js';
 import { getBanner, getSubtitle } from './tui/banner.js';
 import { assertWritable, readJsonObject, writeTarget } from './utils/json-file.js';
+import {
+  CC_DROPPED_SUBAGENT_STATUSLINE,
+  MIN_CC_MODS,
+  MOD_INSTALL_COMMAND,
+  detectCcVersion,
+  subagentPanel,
+} from './cc-version.js';
 
 // ── ANSI helpers ────────────────────────────────────────────────────
 const RST = '\x1b[0m';
@@ -102,6 +109,9 @@ export interface InstallerOptions {
   hasGlobalBin?: () => boolean;
   // Runs `npm i -g lumira`; returns true on success. Injected in tests.
   installGlobal?: () => boolean;
+  // The installed Claude Code's version, or undefined when it can't be read.
+  // Defaults to asking `claude --version`; injected in tests.
+  ccVersion?: () => string | undefined;
 }
 
 // Is `lumira` resolvable as a global bin on PATH?
@@ -268,6 +278,55 @@ async function maybeRegisterSubagent(args: {
   return true;
 }
 
+/**
+ * Decide what to do about the agent panel for the installed Claude Code.
+ *
+ * `subagentStatusLine` was removed in 2.1.323, so past that point registering
+ * it would write a key Claude Code ignores (and warns about). Instead:
+ *  - before 2.1.323: offer it, as always;
+ *  - 2.1.330 or later: drop the entry lumira itself registered earlier and
+ *    print the mod's install line — never run it, the install asks the user
+ *    questions of its own;
+ *  - in between, or when the version can't be read: leave settings alone;
+ *    say the mod needs a newer Claude Code, or print the line.
+ * A `subagentStatusLine` that isn't lumira's is never touched. Returns true
+ * when settings changed, so the caller knows to write them.
+ */
+async function handleAgentPanel(args: {
+  settings: Record<string, unknown>;
+  baseCmd: string;
+  confirm: (q: string) => Promise<boolean>;
+  isTTY: boolean;
+  lines: string[];
+  ccVersion: string | undefined;
+}): Promise<boolean> {
+  const { settings, lines, ccVersion } = args;
+  const modLine = `  ${DIM}Agent panel rows (Claude Code ${MIN_CC_MODS}+): ${MOD_INSTALL_COMMAND}${RST}`;
+
+  switch (subagentPanel(ccVersion)) {
+    case 'statusline':
+      return maybeRegisterSubagent(args);
+    case 'too-old-for-mod':
+      lines.push(warn(
+        `Claude Code ${ccVersion} no longer reads subagentStatusLine, and the lumira-agentrow mod needs ${MIN_CC_MODS} or later — update Claude Code to customize agent rows`,
+      ));
+      return false;
+    case 'unknown':
+      lines.push(modLine);
+      return false;
+    case 'mod': {
+      let changed = false;
+      if (isLumira(settings.subagentStatusLine)) {
+        delete settings.subagentStatusLine;
+        lines.push(ok(`Removed subagentStatusLine — Claude Code ${CC_DROPPED_SUBAGENT_STATUSLINE}+ no longer reads it`));
+        changed = true;
+      }
+      lines.push(modLine);
+      return changed;
+    }
+  }
+}
+
 export async function install(opts: InstallerOptions = {}): Promise<string> {
   const settingsPath = opts.settingsPath ?? defaultSettingsPath();
   const configPath = opts.configPath ?? defaultConfigPath();
@@ -277,6 +336,7 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
   const stdout = opts.stdout ?? process.stdout;
   const hasGlobalBin = opts.hasGlobalBin ?? defaultHasGlobalBin;
   const installGlobal = opts.installGlobal ?? defaultInstallGlobal;
+  const ccVersion = (opts.ccVersion ?? detectCcVersion)();
   const lines: string[] = [];
 
   // Build banner prelude (shown on each wizard frame so it survives screen clears)
@@ -383,8 +443,8 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
     }
     // A returning user may still want to opt into the subagent hook — offer
     // it and flush only if they accept.
-    const added = await maybeRegisterSubagent({ settings, baseCmd: existingCmd, confirm, isTTY: !!stdin?.isTTY, lines });
-    if (added || needsWrite) writeSettingsAtomic(settings, settingsPath);
+    const panelChanged = await handleAgentPanel({ settings, baseCmd: existingCmd, confirm, isTTY: !!stdin?.isTTY, lines, ccVersion });
+    if (panelChanged || needsWrite) writeSettingsAtomic(settings, settingsPath);
     return finalize();
   }
 
@@ -404,8 +464,8 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
         settings.statusLine = { ...(settings.statusLine as Record<string, unknown>), refreshInterval: desiredRefreshInterval };
         needsWrite = true;
       }
-      const added = await maybeRegisterSubagent({ settings, baseCmd: existingCmd, confirm, isTTY: !!stdin?.isTTY, lines });
-      if (added || needsWrite) writeSettingsAtomic(settings, settingsPath);
+      const panelChanged = await handleAgentPanel({ settings, baseCmd: existingCmd, confirm, isTTY: !!stdin?.isTTY, lines, ccVersion });
+      if (panelChanged || needsWrite) writeSettingsAtomic(settings, settingsPath);
       return finalize();
     }
   }
@@ -421,7 +481,7 @@ export async function install(opts: InstallerOptions = {}): Promise<string> {
     ? (settings.statusLine as Record<string, unknown>).refreshInterval as number | undefined
     : undefined;
   settings.statusLine = makeStatusLine(resolvedCmd, desiredRefreshInterval ?? existingRefreshInterval);
-  await maybeRegisterSubagent({ settings, baseCmd: resolvedCmd, confirm, isTTY: !!stdin?.isTTY, lines });
+  await handleAgentPanel({ settings, baseCmd: resolvedCmd, confirm, isTTY: !!stdin?.isTTY, lines, ccVersion });
   if (backUpForeign) {
     copyFileSync(settingsPath, backupPath);
     lines.push(ok(`Backed up existing settings → ${DIM}settings.json.lumira.bak${RST}`));
