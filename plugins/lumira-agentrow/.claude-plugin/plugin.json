@@ -1,0 +1,21 @@
+{
+  "name": "lumira-agentrow",
+  "version": "1.21.0",
+  "description": "Agent panel rows for Claude Code: per-subagent elapsed time, cost, context usage and token trend. Companion to the lumira statusline.",
+  "author": {
+    "name": "Carlos Cativo"
+  },
+  "repository": "https://github.com/cativo23/lumira",
+  "homepage": "https://github.com/cativo23/lumira#readme",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "subagents",
+    "agent-panel",
+    "statusline",
+    "lumira"
+  ],
+  "engines": {
+    "claude-code": ">=2.1.330"
+  }
+}

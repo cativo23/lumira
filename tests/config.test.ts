@@ -815,6 +815,20 @@ describe('saveConfig', () => {
     });
   });
 
+  it('keeps the subagentRow block the lumira-agentrow mod reads', () => {
+    const p = join(dir, 'config.json');
+    const block = { cost: false, sparkline: true };
+    writeFileSync(p, JSON.stringify({ subagentRow: block, preset: 'full' }));
+    saveConfig({ preset: 'minimal', icons: 'none' }, p);
+    expect(JSON.parse(readFileSync(p, 'utf8')).subagentRow).toEqual(block);
+  });
+
+  it('loads a config carrying a subagentRow block without complaint', () => {
+    const p = join(dir, 'config.json');
+    writeFileSync(p, JSON.stringify({ subagentRow: { cost: false } }));
+    expect(() => loadConfig(dir)).not.toThrow();
+  });
+
   it.each([
     ['malformed JSON', 'not { valid json'],
     ['JSON null', 'null'],
