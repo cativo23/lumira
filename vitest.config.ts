@@ -10,7 +10,7 @@ export default defineConfig({
     pool: 'forks',
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts'],
+      include: ['src/**/*.ts', 'plugins/lumira-agentrow/hooks/row.ts'],
       // Floors set ~3% below current values (lines 90.08, statements 88.76,
       // branches 79.10) so normal churn doesn't fail CI but a meaningful drop
       // does. Raise these as coverage improves; never lower without a PR

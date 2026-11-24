@@ -30,6 +30,24 @@
         "powerline",
         "themes"
       ]
+    },
+    {
+      "name": "lumira-agentrow",
+      "source": "./plugins/lumira-agentrow",
+      "description": "Agent panel rows for Claude Code (needs 2.1.330 or later): per-subagent elapsed time, cost, context usage and token trend. Companion to the lumira statusline; settings live in ~/.config/lumira/config.json.",
+      "version": "1.21.0",
+      "author": {
+        "name": "Carlos Cativo"
+      },
+      "homepage": "https://github.com/cativo23/lumira#readme",
+      "repository": "https://github.com/cativo23/lumira",
+      "license": "MIT",
+      "keywords": [
+        "claude-code",
+        "subagents",
+        "agent-panel",
+        "lumira"
+      ]
     }
   ],
   "version": "1.21.0"
