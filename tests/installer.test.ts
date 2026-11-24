@@ -482,6 +482,66 @@ describe('install', () => {
       const output = await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
       expect(output.split(MOD_LINE).length - 1).toBe(1);
     });
+
+    // What lumira itself writes is `<statusLine command> subagent`; the removal
+    // must match that shape, not any command that happens to contain "lumira".
+    it.each([
+      'lumira subagent',
+      'npx lumira subagent',
+      'npx -y lumira subagent',
+      'npx lumira@1.20.0 subagent',
+      'node /usr/lib/node_modules/lumira/dist/index.js subagent',
+      'node "/home/u/.claude/plugins/cache/lumira/lumira/1.21.0/dist/index.js" subagent',
+      'node "${CLAUDE_PLUGIN_ROOT}/dist/index.js" subagent',
+    ])('removes the entry lumira wrote in the shape %j', async (command) => {
+      optimalWith({ subagentStatusLine: { type: 'command', command, padding: 0 } });
+      await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
+      expect(readSettings().subagentStatusLine).toBeUndefined();
+    });
+
+    it.each([
+      '/home/lumira/bin/my-renderer',
+      'my-lumira-fork subagent',
+      'lumira-other subagent',
+      'echo lumira subagent',
+      'lumira subagent --verbose',
+      'node /opt/tool/dist/index.js subagent',
+      'node /home/me/lumira-notes/dist/index.js subagent',
+      'sh -c "lumira subagent"',
+    ])('never removes a command that only mentions lumira: %j', async (command) => {
+      optimalWith({ subagentStatusLine: { type: 'command', command, padding: 0 } });
+      const output = await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
+      expect(readSettings().subagentStatusLine.command).toBe(command);
+      expect(output).not.toMatch(/Removed subagentStatusLine/);
+    });
+
+    it('leaves a subagentStatusLine that is not an object alone', async () => {
+      optimalWith({ subagentStatusLine: 'lumira subagent' });
+      await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
+      expect(readSettings().subagentStatusLine).toBe('lumira subagent');
+    });
+
+    it('does not ask claude for its version when the user declines to replace a foreign statusline', async () => {
+      writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: 'other-tool', padding: 0 } }));
+      const ccVersion = vi.fn(() => '2.1.331');
+      const output = await install({ ...baseOpts(), confirm: async () => false, ccVersion });
+      expect(output).toContain('Aborted');
+      expect(ccVersion).not.toHaveBeenCalled();
+    });
+
+    it('does not ask claude for its version when settings.json is unreadable', async () => {
+      writeFileSync(settingsPath, '{ not json');
+      const ccVersion = vi.fn(() => '2.1.331');
+      await expect(install({ ...baseOpts(), ccVersion })).rejects.toThrow();
+      expect(ccVersion).not.toHaveBeenCalled();
+    });
+
+    it('asks claude for its version once per install', async () => {
+      optimalWith();
+      const ccVersion = vi.fn(() => '2.1.331');
+      await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion });
+      expect(ccVersion).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('refreshInterval', () => {
