@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.22.1] - 2026-11-24
+
+### Fixed
+
+- **The README's "What's new" banner is current again.** It still said v1.18.0 after four releases; it now leads with the agent panel mod. The npm page shows the README of the published package, so this release is what brings it there. A test now fails the release PR of a minor or major version if the banner is behind.
+
 ## [1.22.0] - 2026-11-24
 
 ### Added
@@ -738,7 +744,8 @@ First stable release. API is now considered stable under SemVer.
 - GSD session IDs sanitized against path traversal
 - `execFile` used instead of `exec` to prevent shell injection (except terminal width detection where shell redirect is required with procfs-sourced paths)
 
-[Unreleased]: https://github.com/cativo23/lumira/compare/v1.22.0...HEAD
+[Unreleased]: https://github.com/cativo23/lumira/compare/v1.22.1...HEAD
+[1.22.1]: https://github.com/cativo23/lumira/compare/v1.22.0...v1.22.1
 [1.22.0]: https://github.com/cativo23/lumira/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/cativo23/lumira/compare/v1.20.1...v1.21.0
 [1.20.1]: https://github.com/cativo23/lumira/compare/v1.20.0...v1.20.1
