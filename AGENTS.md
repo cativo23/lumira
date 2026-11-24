@@ -92,6 +92,11 @@ notes from CHANGELOG.md → runs `npm publish`. Tags with a SemVer suffix
 3. Move the `[Unreleased]` changelog entries into a new `[X.Y.Z] - YYYY-MM-DD`
    section. Update the compare links. `release.yml` publishes that section as
    the release notes, so it must exist.
+   On a minor or major release, also rewrite the `What's new in vX.Y.Z` banner
+   near the top of `README.md` around that release's headline change.
+   Nothing generates it, and it stayed at v1.18.0 through four releases;
+   `tests/readme-banner.test.ts` now fails the release PR if its minor version
+   is behind `package.json`. A patch release leaves it alone.
 4. `git commit -am "chore(release): vX.Y.Z"`, push, and open a PR to `main`.
    **The release commit goes through a PR like any other change — never push
    to `main` directly.** Merge it once CI is green and the maintainer approves.
