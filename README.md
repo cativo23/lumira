@@ -311,7 +311,7 @@ Reading a row, left to right:
 
 | Part | Example | Meaning |
 |---|---|---|
-| Glyph | `◔` `✔` `⚠` `–` | State: running (cyan), completed (green), failed (red), killed or paused (yellow). With `icons: "none"` the glyphs become `*` `+` `!` `-` |
+| Glyph | `◔` `✔` `⚠` `–` `❚❚` `◌` | State: running (cyan), completed (green), failed (red), killed (`–`) or paused (`❚❚`) in yellow, pending (`◌`, dim). With `icons: "none"` the glyphs become `*` `+` `!` `-` `=` `.`; the trend bars and the `·` separators stay as they are |
 | Agent · model · effort | `general-purpose · haiku · high` | Which kind of subagent, the model family it runs on, and the reasoning effort set for it. Effort is left out when the agent just takes the session's |
 | Description | `Scan the repo` | What the agent was asked to do |
 | Elapsed | `1m12s` | **Wall-clock time since it started, shown only while it runs.** A finished agent drops it, so a stale timer never looks like a live one |
@@ -320,7 +320,7 @@ Reading a row, left to right:
 | Trend | `▁▃▆█` | Off by default. The agent's last readings, about five seconds apart, each bar relative to the highest one: a climbing staircase is a working agent, flat bars are a parked one |
 | State | `running` | The state in words |
 
-Anything Claude Code doesn't report for an agent (no model resolved yet, no cost recorded) is left out rather than shown as zero. Text from the agent is stripped of terminal control characters before it is drawn.
+Anything Claude Code doesn't report for an agent (no model resolved yet, no cost recorded) is left out rather than shown as zero. Text from the agent is stripped of escape sequences, control characters, zero-width marks and bidirectional overrides before it is drawn, so a description can't move the cursor, forge a link or reorder the row.
 
 **Turn pieces off** with a `subagentRow` block in `~/.config/lumira/config.json`. Every key is a boolean and optional; the mod rereads the file when it changes, within about five seconds, so there is nothing to restart:
 
@@ -330,7 +330,7 @@ Anything Claude Code doesn't report for an agent (no model resolved yet, no cost
 }
 ```
 
-Those are the defaults. A value that isn't a boolean is ignored. The mod also follows lumira's `icons` setting for its glyphs. It reads the file from `~/.config/lumira/` on Linux and macOS and from `%USERPROFILE%\.config\lumira\` on Windows, the same place `lumira` itself uses; if the file is missing or unreadable it falls back to the defaults.
+Those are the defaults. A value that isn't a boolean is ignored. The mod also follows the `icons` value in that file for its glyphs (a `--icons=` flag given to the statusline is not visible to it). It reads the file from `~/.config/lumira/` on Linux and macOS and from `%USERPROFILE%\.config\lumira\` on Windows, the same place `lumira` itself uses; if the file is missing or unreadable it falls back to the defaults.
 
 ### Claude Code before 2.1.323: `lumira subagent`
 
