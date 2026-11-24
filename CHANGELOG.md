@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A mod for the agent panel: `lumira-agentrow`.** Claude Code 2.1.323 removed the `subagentStatusLine` setting, so `lumira subagent` no longer changes anything there. Claude Code 2.1.330 added a replacement, a mod that draws each subagent row, and lumira now ships one as a second plugin in its marketplace: `claude plugin install lumira-agentrow --marketplace cativo23/lumira`. Each row shows the agent type, model and effort, the description, how long it has been running (only while it runs), what its own requests have cost, and how full its context is (green, yellow from 60 %, red from 85 %). An optional token trend (`sparkline`, off by default) shows whether the agent is still climbing. Turn pieces off with a `subagentRow` block of booleans in `~/.config/lumira/config.json`; the mod rereads the file when it changes and follows your `icons` setting (ASCII glyphs with `none`). Reading its pieces is in the README's Subagent rows section.
+
 ## [1.21.0] - 2026-11-13
 
 ### Fixed

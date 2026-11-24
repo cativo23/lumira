@@ -290,7 +290,51 @@ lumira stats
 
 ## Subagent rows
 
-Claude Code (≥ 2.1.x) exposes a [`subagentStatusLine`](https://code.claude.com/docs/en/statusline#subagent-status-lines) hook that lets a command customize how each subagent renders in the agent panel — replacing the default `name · description · token count` row. `lumira subagent` reads the visible tasks from stdin and renders each row in your configured theme and icon set:
+Claude Code 2.1.323 **removed** the `subagentStatusLine` setting, so on 2.1.323 and later the agent panel can only be customized by a *mod*. Lumira ships one, `lumira-agentrow`, for Claude Code 2.1.330 or later. On older versions keep using the `lumira subagent` command described [below](#claude-code-before-21323-lumira-subagent).
+
+### The `lumira-agentrow` mod (Claude Code ≥ 2.1.330)
+
+Install it from the lumira marketplace:
+
+```bash
+claude plugin install lumira-agentrow --marketplace cativo23/lumira
+```
+
+Each subagent row in the agent panel then carries what Claude Code's own row leaves out:
+
+```
+◔ general-purpose · haiku · high  Scan the repo  1m12s · $0.05 · 110k/1.0M 11% · running
+✔ Explore · sonnet  Map the auth module  $0.12 · 48k/1.0M 5% · completed
+```
+
+Reading a row, left to right:
+
+| Part | Example | Meaning |
+|---|---|---|
+| Glyph | `◔` `✔` `⚠` `–` | State: running (cyan), completed (green), failed (red), killed or paused (yellow). With `icons: "none"` the glyphs become `*` `+` `!` `-` |
+| Agent · model · effort | `general-purpose · haiku · high` | Which kind of subagent, the model family it runs on, and the reasoning effort set for it. Effort is left out when the agent just takes the session's |
+| Description | `Scan the repo` | What the agent was asked to do |
+| Elapsed | `1m12s` | **Wall-clock time since it started, shown only while it runs.** A finished agent drops it, so a stale timer never looks like a live one |
+| Cost | `$0.05` | What this agent's own requests have cost so far — an estimate priced the way `/cost` prices them, so it can differ slightly from your bill. It grows with the agent and does not include its parent's spending |
+| Context | `110k/1.0M 11%` | Tokens the agent holds (its latest request's input plus all its output) against its model's context window. Green below 60 %, yellow from 60 %, red from 85 % — a red agent is close to compacting |
+| Trend | `▁▃▆█` | Off by default. The agent's last readings, about five seconds apart, each bar relative to the highest one: a climbing staircase is a working agent, flat bars are a parked one |
+| State | `running` | The state in words |
+
+Anything Claude Code doesn't report for an agent (no model resolved yet, no cost recorded) is left out rather than shown as zero. Text from the agent is stripped of terminal control characters before it is drawn.
+
+**Turn pieces off** with a `subagentRow` block in `~/.config/lumira/config.json`. Every key is a boolean and optional; the mod rereads the file when it changes, within about five seconds, so there is nothing to restart:
+
+```json
+{
+  "subagentRow": { "type": true, "effort": true, "elapsed": true, "cost": true, "context": true, "sparkline": false }
+}
+```
+
+Those are the defaults. A value that isn't a boolean is ignored. The mod also follows lumira's `icons` setting for its glyphs. It reads the file from `~/.config/lumira/` on Linux and macOS and from `%USERPROFILE%\.config\lumira\` on Windows, the same place `lumira` itself uses; if the file is missing or unreadable it falls back to the defaults.
+
+### Claude Code before 2.1.323: `lumira subagent`
+
+Claude Code (≥ 2.1.x) exposed a [`subagentStatusLine`](https://code.claude.com/docs/en/statusline#subagent-status-lines) hook that lets a command customize how each subagent renders in the agent panel — replacing the default `name · description · token count` row. `lumira subagent` reads the visible tasks from stdin and renders each row in your configured theme and icon set:
 
 ```
 󱎫 Explore          haiku   reviewing auth module · 15k tok · running

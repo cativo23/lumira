@@ -66,6 +66,12 @@ All fields are optional — defaults are shown above (except `refreshInterval`, 
 
 **Context bar thresholds** — `contextWarningThreshold` (default 70) and `contextCriticalThreshold` (default 85) control when the bar transitions through yellow/orange/red. Both are clamped to `[0, 100]` and `warning < critical` is required (invalid pairs fall back to defaults with a one-shot stderr warning). Lower them for earlier warnings, raise them if your workflow tolerates fuller buffers.
 
+**Agent row mod** — `subagentRow` is a block of booleans read only by the `lumira-agentrow` mod (Claude Code ≥ 2.1.330), not by the statusline. Keys: `type`, `effort`, `elapsed`, `cost`, `context` (all `true` by default) and `sparkline` (`false`). A non-boolean value is ignored, and the mod rereads the file within about five seconds of a change. It also follows `icons`: with `"none"` its glyphs become ASCII. How to read each piece is in the README's [Subagent rows](../README.md#subagent-rows) section.
+
+```json
+{ "subagentRow": { "cost": false, "sparkline": true } }
+```
+
 > **Migration note (post-0.7.1):** default color transitions shifted from `50/65/80` to `50/70/85`. The bar now stays yellow up to 70% (was 65%) and orange up to 85% (was 80%) before flashing red. To restore the previous behavior, set `"contextWarningThreshold": 65, "contextCriticalThreshold": 80` in your config.
 
 ## CLI Flags

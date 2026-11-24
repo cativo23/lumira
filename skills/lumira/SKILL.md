@@ -35,6 +35,7 @@ Your job: read the user's current config, translate their natural-language reque
 | `colors.mode` | string | `"auto"` \| `"named"` \| `"256"` \| `"truecolor"` | Color depth |
 | `gsd` | boolean | `true` \| `false` | Show GSD task info section |
 | `refreshInterval` | number | integer >= 1 | Seconds between forced re-renders (in addition to CC's event-driven ones) — keeps the clock/quota fresh in idle sessions. Unset by default. Transcribed into `settings.json`'s `statusLine.refreshInterval` by `lumira install` — never into `subagentStatusLine`. |
+| `subagentRow` | object | booleans: `type`, `effort`, `elapsed`, `cost`, `context`, `sparkline` | Read only by the `lumira-agentrow` mod (Claude Code ≥ 2.1.330, install with `claude plugin install lumira-agentrow --marketplace cativo23/lumira`), not by the statusline. Every key optional; defaults are all `true` except `sparkline` (`false`). Non-boolean values are ignored. |
 
 ### Presets — what they do
 
