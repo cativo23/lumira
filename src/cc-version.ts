@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import { semverCompare } from './utils/semver.js';
 
 /** Claude Code removed the `subagentStatusLine` setting in this release. */
@@ -35,8 +36,16 @@ export function subagentPanel(version: string | undefined): SubagentPanel {
   return 'mod';
 }
 
+// Spawned from the home dir, not the current one: on Windows the current
+// directory is searched before PATH, so running `lumira install` inside a
+// downloaded folder holding a `claude.exe` would otherwise run that file.
 function defaultRun(cmd: string, args: string[]): string {
-  return execFileSync(cmd, args, { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] });
+  return execFileSync(cmd, args, {
+    encoding: 'utf8',
+    timeout: 3000,
+    stdio: ['ignore', 'pipe', 'ignore'],
+    cwd: homedir(),
+  });
 }
 
 /**
