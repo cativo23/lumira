@@ -60,7 +60,9 @@ describe('install', () => {
   };
 
   // baseOpts: non-TTY, no global bin → resolves to the `npx lumira` fallback
-  // (no prompt). installGlobal is stubbed so the real `npm i -g` never runs.
+  // (no prompt). installGlobal is stubbed so the real `npm i -g` never runs, and
+  // ccVersion is pinned below 2.1.323 so no test depends on the `claude` that
+  // happens to be installed where the suite runs.
   const baseOpts = () => ({
     settingsPath,
     configPath,
@@ -69,6 +71,7 @@ describe('install', () => {
     confirm: async () => true,
     hasGlobalBin: () => false,
     installGlobal: () => true,
+    ccVersion: (): string | undefined => '2.1.300',
   });
 
   beforeEach(() => {
@@ -371,6 +374,173 @@ describe('install', () => {
       await completeWizard(stdin);
       await promise;
       expect(readSettings().subagentStatusLine.command).toBe('my-own-renderer');
+    });
+  });
+
+  // ── agent panel by Claude Code version ───────────────────────────
+  // 2.1.323 removed subagentStatusLine; the lumira-agentrow mod (2.1.330+) is
+  // the replacement. The installer steers by the version `claude --version` gives.
+  describe('agent panel by Claude Code version', () => {
+    const MOD_LINE = 'claude plugin install lumira-agentrow --marketplace cativo23/lumira';
+    const LUMIRA_ROW = { type: 'command', command: 'lumira subagent', padding: 0 };
+    const optimalWith = (extra: Record<string, unknown> = {}) =>
+      writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: 'lumira', padding: 0 }, ...extra }));
+    const readSettings = () => JSON.parse(readFileSync(settingsPath, 'utf8'));
+    const ttyInstall = async (ccVersion: () => string | undefined, confirm: (q: string) => Promise<boolean>) => {
+      const stdin = createMockStdin(true);
+      const promise = install({
+        ...baseOpts(), stdin, stdout: createMockStdout(), hasGlobalBin: () => true, confirm, ccVersion,
+      });
+      await completeWizard(stdin);
+      return promise;
+    };
+
+    it('still offers subagentStatusLine below 2.1.323 and does not mention the mod', async () => {
+      optimalWith();
+      const asked: string[] = [];
+      const output = await ttyInstall(() => '2.1.322', async (q) => { asked.push(q); return true; });
+      expect(asked.some((q) => q.includes('subagent'))).toBe(true);
+      expect(readSettings().subagentStatusLine.command).toBe('lumira subagent');
+      expect(output).not.toContain('lumira-agentrow');
+    });
+
+    it('never asks about subagentStatusLine from 2.1.330 and prints the mod install line', async () => {
+      optimalWith();
+      const asked: string[] = [];
+      const output = await ttyInstall(() => '2.1.331', async (q) => { asked.push(q); return true; });
+      expect(asked.some((q) => q.includes('subagent'))).toBe(false);
+      expect(readSettings().subagentStatusLine).toBeUndefined();
+      expect(output).toContain(MOD_LINE);
+    });
+
+    it('prints the mod install line in a non-TTY install too', async () => {
+      const output = await install({ ...baseOpts(), ccVersion: () => '2.1.330' });
+      expect(output).toContain(MOD_LINE);
+      expect(readSettings().subagentStatusLine).toBeUndefined();
+    });
+
+    it('removes the dead subagentStatusLine lumira registered earlier, and says so', async () => {
+      optimalWith({ subagentStatusLine: LUMIRA_ROW });
+      const output = await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
+      const s = readSettings();
+      expect(s.subagentStatusLine).toBeUndefined();
+      expect(s.statusLine.command).toBe('lumira');
+      expect(output).toMatch(/Removed subagentStatusLine/);
+      expect(output).toContain('2.1.323');
+    });
+
+    it('removes it on a first install too, not only when lumira is already optimal', async () => {
+      writeFileSync(settingsPath, JSON.stringify({ subagentStatusLine: LUMIRA_ROW }));
+      await install({ ...baseOpts(), ccVersion: () => '2.1.331' });
+      const s = readSettings();
+      expect(s.subagentStatusLine).toBeUndefined();
+      expect(s.statusLine.command).toBe('npx lumira');
+    });
+
+    it('keeps every other settings key when it removes the dead entry', async () => {
+      optimalWith({ subagentStatusLine: LUMIRA_ROW, model: 'opus', permissions: { allow: ['Bash(ls)'] } });
+      await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
+      const s = readSettings();
+      expect(s.model).toBe('opus');
+      expect(s.permissions).toEqual({ allow: ['Bash(ls)'] });
+    });
+
+    it('leaves a foreign subagentStatusLine alone even on 2.1.331', async () => {
+      optimalWith({ subagentStatusLine: { type: 'command', command: 'my-own-renderer', padding: 0 } });
+      await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
+      expect(readSettings().subagentStatusLine.command).toBe('my-own-renderer');
+    });
+
+    it('between 2.1.323 and 2.1.329 asks nothing, keeps the old entry and says the mod needs 2.1.330', async () => {
+      optimalWith({ subagentStatusLine: LUMIRA_ROW });
+      const asked: string[] = [];
+      const output = await ttyInstall(() => '2.1.325', async (q) => { asked.push(q); return true; });
+      expect(asked.some((q) => q.includes('subagent'))).toBe(false);
+      expect(readSettings().subagentStatusLine.command).toBe('lumira subagent');
+      expect(output).toContain('2.1.330');
+      expect(output).not.toContain(MOD_LINE);
+    });
+
+    it('when the version cannot be read asks nothing, keeps the old entry and prints the mod line', async () => {
+      optimalWith({ subagentStatusLine: LUMIRA_ROW });
+      const asked: string[] = [];
+      const output = await ttyInstall(() => undefined, async (q) => { asked.push(q); return true; });
+      expect(asked.some((q) => q.includes('subagent'))).toBe(false);
+      expect(readSettings().subagentStatusLine.command).toBe('lumira subagent');
+      expect(output).toContain(MOD_LINE);
+    });
+
+    it('does not rewrite settings.json when there is nothing to change', async () => {
+      optimalWith();
+      const before = readFileSync(settingsPath, 'utf8');
+      await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
+      expect(readFileSync(settingsPath, 'utf8')).toBe(before);
+    });
+
+    it('prints the mod line once', async () => {
+      optimalWith();
+      const output = await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
+      expect(output.split(MOD_LINE).length - 1).toBe(1);
+    });
+
+    // What lumira itself writes is `<statusLine command> subagent`; the removal
+    // must match that shape, not any command that happens to contain "lumira".
+    it.each([
+      'lumira subagent',
+      'npx lumira subagent',
+      'npx -y lumira subagent',
+      'npx lumira@1.20.0 subagent',
+      'node /usr/lib/node_modules/lumira/dist/index.js subagent',
+      'node "/home/u/.claude/plugins/cache/lumira/lumira/1.21.0/dist/index.js" subagent',
+      'node "${CLAUDE_PLUGIN_ROOT}/dist/index.js" subagent',
+    ])('removes the entry lumira wrote in the shape %j', async (command) => {
+      optimalWith({ subagentStatusLine: { type: 'command', command, padding: 0 } });
+      await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
+      expect(readSettings().subagentStatusLine).toBeUndefined();
+    });
+
+    it.each([
+      '/home/lumira/bin/my-renderer',
+      'my-lumira-fork subagent',
+      'lumira-other subagent',
+      'echo lumira subagent',
+      'lumira subagent --verbose',
+      'node /opt/tool/dist/index.js subagent',
+      'node /home/me/lumira-notes/dist/index.js subagent',
+      'sh -c "lumira subagent"',
+    ])('never removes a command that only mentions lumira: %j', async (command) => {
+      optimalWith({ subagentStatusLine: { type: 'command', command, padding: 0 } });
+      const output = await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
+      expect(readSettings().subagentStatusLine.command).toBe(command);
+      expect(output).not.toMatch(/Removed subagentStatusLine/);
+    });
+
+    it('leaves a subagentStatusLine that is not an object alone', async () => {
+      optimalWith({ subagentStatusLine: 'lumira subagent' });
+      await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion: () => '2.1.331' });
+      expect(readSettings().subagentStatusLine).toBe('lumira subagent');
+    });
+
+    it('does not ask claude for its version when the user declines to replace a foreign statusline', async () => {
+      writeFileSync(settingsPath, JSON.stringify({ statusLine: { type: 'command', command: 'other-tool', padding: 0 } }));
+      const ccVersion = vi.fn(() => '2.1.331');
+      const output = await install({ ...baseOpts(), confirm: async () => false, ccVersion });
+      expect(output).toContain('Aborted');
+      expect(ccVersion).not.toHaveBeenCalled();
+    });
+
+    it('does not ask claude for its version when settings.json is unreadable', async () => {
+      writeFileSync(settingsPath, '{ not json');
+      const ccVersion = vi.fn(() => '2.1.331');
+      await expect(install({ ...baseOpts(), ccVersion })).rejects.toThrow();
+      expect(ccVersion).not.toHaveBeenCalled();
+    });
+
+    it('asks claude for its version once per install', async () => {
+      optimalWith();
+      const ccVersion = vi.fn(() => '2.1.331');
+      await install({ ...baseOpts(), hasGlobalBin: () => true, ccVersion });
+      expect(ccVersion).toHaveBeenCalledTimes(1);
     });
   });
 

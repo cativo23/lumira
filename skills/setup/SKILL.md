@@ -27,7 +27,12 @@ You activate the **lumira** statusline for Claude Code after plugin installation
    fi
    ```
    Never overwrite an existing config under any circumstances.
-7. **Confirm and instruct** — Tell the user what was written and that they must restart Claude Code.
+7. **Agent panel mod** — Run `claude --version` and read the `X.Y.Z` it prints. Never install anything yourself and never touch `subagentStatusLine`; only tell the user:
+   - **2.1.330 or later** → "To customize the agent panel rows, install the mod: `claude plugin install lumira-agentrow --marketplace cativo23/lumira`".
+   - **2.1.323 to 2.1.329** → "Claude Code no longer reads `subagentStatusLine`, and the lumira-agentrow mod needs 2.1.330 or later — update Claude Code to use it."
+   - **The command fails or prints no version** → say the same as for 2.1.330 or later, adding "(needs Claude Code 2.1.330 or later)" — the same as `lumira install` does when it cannot read the version.
+   - **Before 2.1.323** → say nothing about it.
+8. **Confirm and instruct** — Tell the user what was written and that they must restart Claude Code.
 
 ## Finding the install path
 
@@ -52,6 +57,7 @@ After writing, tell the user:
 - The exact command written
 - That they need to **restart Claude Code** for the statusline to appear
 - "Run /lumira:lumira to customize preset, theme, or display widgets"
+- The agent panel mod line from step 7, when it applies
 
 ## Error cases
 
